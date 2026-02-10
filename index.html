@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="si">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sillara-POS - සිල්ලර බඩු කඩය</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Remix Icons CDN -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css"
+      rel="stylesheet"
+    />
+
+    <!-- Dexie.js CDN -->
+    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Sinhala:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="styles.css" />
+
+    <script>
+      // Tailwind Config
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: {
+                50: "#f0fdf4",
+                100: "#dcfce7",
+                200: "#bbf7d0",
+                300: "#86efac",
+                400: "#4ade80",
+                500: "#22c55e",
+                600: "#16a34a",
+                700: "#15803d",
+                800: "#166534",
+                900: "#14532d",
+              },
+              accent: {
+                50: "#fef2f2",
+                100: "#fee2e2",
+                200: "#fecaca",
+                300: "#fca5a5",
+                400: "#f87171",
+                500: "#ef4444",
+                600: "#dc2626",
+                700: "#b91c1c",
+                800: "#991b1b",
+                900: "#7f1d1d",
+              },
+            },
+            fontFamily: {
+              sans: ["Inter", "sans-serif"],
+              sinhala: ["Noto Sans Sinhala", "sans-serif"],
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body class="bg-gradient-to-br from-gray-50 to-gray-100">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-lg sticky top-0 z-50">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-16">
+          <div class="flex items-center space-x-3">
+            <div
+              class="bg-gradient-to-br from-primary-500 to-primary-700 p-2 rounded-xl shadow-lg"
+            >
+              <i class="ri-store-2-fill text-white text-2xl"></i>
+            </div>
+            <div>
+              <h1 class="text-xl font-bold text-gray-800">Sillara-POS</h1>
+              <p class="text-xs text-gray-500 font-sinhala">සිල්ලර බඩු කඩය</p>
+            </div>
+          </div>
+
+          <!-- Navigation Menu -->
+          <div class="hidden md:flex space-x-2">
+            <button
+              onclick="showPage('dashboard')"
+              id="nav-dashboard"
+              class="nav-btn active"
+            >
+              <i class="ri-dashboard-3-line"></i>
+              <span>Dashboard</span>
+            </button>
+            <button onclick="showPage('pos')" id="nav-pos" class="nav-btn">
+              <i class="ri-shopping-cart-2-line"></i>
+              <span>POS</span>
+            </button>
+            <button
+              onclick="showPage('inventory')"
+              id="nav-inventory"
+              class="nav-btn"
+            >
+              <i class="ri-archive-line"></i>
+              <span>Stock</span>
+            </button>
+            <button
+              onclick="showPage('reports')"
+              id="nav-reports"
+              class="nav-btn"
+            >
+              <i class="ri-file-chart-line"></i>
+              <span>Reports</span>
+            </button>
+            <button
+              onclick="showPage('settings')"
+              id="nav-settings"
+              class="nav-btn"
+            >
+              <i class="ri-settings-3-line"></i>
+              <span>Settings</span>
+            </button>
+          </div>
+
+          <!-- Mobile Menu Button -->
+          <button
+            class="md:hidden p-2 rounded-lg hover:bg-gray-100"
+            onclick="toggleMobileMenu()"
+          >
+            <i class="ri-menu-line text-2xl"></i>
+          </button>
+        </div>
+
+        <!-- Mobile Navigation -->
+        <div id="mobile-menu" class="md:hidden hidden pb-4">
+          <div class="flex flex-col space-y-2">
+            <button
+              onclick="
+                showPage('dashboard');
+                toggleMobileMenu();
+              "
+              class="mobile-nav-btn"
+            >
+              <i class="ri-dashboard-3-line"></i>
+              <span>Dashboard</span>
+            </button>
+            <button
+              onclick="
+                showPage('pos');
+                toggleMobileMenu();
+              "
+              class="mobile-nav-btn"
+            >
+              <i class="ri-shopping-cart-2-line"></i>
+              <span>POS</span>
+            </button>
+            <button
+              onclick="
+                showPage('inventory');
+                toggleMobileMenu();
+              "
+              class="mobile-nav-btn"
+            >
+              <i class="ri-archive-line"></i>
+              <span>Stock</span>
+            </button>
+            <button
+              onclick="
+                showPage('reports');
+                toggleMobileMenu();
+              "
+              class="mobile-nav-btn"
+            >
+              <i class="ri-file-chart-line"></i>
+              <span>Reports</span>
+            </button>
+            <button
+              onclick="
+                showPage('settings');
+                toggleMobileMenu();
+              "
+              class="mobile-nav-btn"
+            >
+              <i class="ri-settings-3-line"></i>
+              <span>Settings</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <!-- Dashboard Page -->
+      <div id="page-dashboard" class="page-content">
+        <div class="mb-6">
+          <h2 class="text-3xl font-bold text-gray-900">Dashboard</h2>
+          <p class="text-gray-600 mt-1 font-sinhala">අද දවසේ විස්තර</p>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <!-- Today's Sales -->
+          <div
+            class="stat-card bg-gradient-to-br from-primary-500 to-primary-700 text-white"
+          >
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-primary-100 text-sm font-medium">
+                  Today's Sales
+                </p>
+                <h3 class="text-3xl font-bold mt-2">
+                  Rs. <span id="today-sales">0.00</span>
+                </h3>
+                <p class="text-primary-100 text-xs mt-2 font-sinhala">
+                  අද විකුණුම්
+                </p>
+              </div>
+              <div class="bg-white/20 p-4 rounded-2xl">
+                <i class="ri-money-rupee-circle-line text-4xl"></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- Total Transactions -->
+          <div
+            class="stat-card bg-gradient-to-br from-blue-500 to-blue-700 text-white"
+          >
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-blue-100 text-sm font-medium">Transactions</p>
+                <h3 class="text-3xl font-bold mt-2">
+                  <span id="today-transactions">0</span>
+                </h3>
+                <p class="text-blue-100 text-xs mt-2 font-sinhala">බිල් ගණන</p>
+              </div>
+              <div class="bg-white/20 p-4 rounded-2xl">
+                <i class="ri-receipt-line text-4xl"></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- Total Products -->
+          <div
+            class="stat-card bg-gradient-to-br from-purple-500 to-purple-700 text-white"
+          >
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-purple-100 text-sm font-medium">Products</p>
+                <h3 class="text-3xl font-bold mt-2">
+                  <span id="total-products">0</span>
+                </h3>
+                <p class="text-purple-100 text-xs mt-2 font-sinhala">
+                  භාණ්ඩ ගණන
+                </p>
+              </div>
+              <div class="bg-white/20 p-4 rounded-2xl">
+                <i class="ri-box-3-line text-4xl"></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- Low Stock Items -->
+          <div
+            class="stat-card bg-gradient-to-br from-accent-500 to-accent-700 text-white"
+          >
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-accent-100 text-sm font-medium">Low Stock</p>
+                <h3 class="text-3xl font-bold mt-2">
+                  <span id="low-stock-count">0</span>
+                </h3>
+                <p class="text-accent-100 text-xs mt-2 font-sinhala">අඩු තොග</p>
+              </div>
+              <div class="bg-white/20 p-4 rounded-2xl">
+                <i class="ri-alert-line text-4xl"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div
+            class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100"
+          >
+            <h3 class="text-xl font-bold text-gray-900 mb-4">Quick Actions</h3>
+            <div class="grid grid-cols-2 gap-4">
+              <button
+                onclick="showPage('pos')"
+                class="action-btn bg-primary-500 hover:bg-primary-600 text-white"
+              >
+                <i class="ri-add-circle-line text-2xl mb-2"></i>
+                <span>New Bill</span>
+              </button>
+              <button
+                onclick="showPage('inventory')"
+                class="action-btn bg-blue-500 hover:bg-blue-600 text-white"
+              >
+                <i class="ri-add-box-line text-2xl mb-2"></i>
+                <span>Add Stock</span>
+              </button>
+              <button
+                onclick="showPage('reports')"
+                class="action-btn bg-purple-500 hover:bg-purple-600 text-white"
+              >
+                <i class="ri-bar-chart-line text-2xl mb-2"></i>
+                <span>View Reports</span>
+              </button>
+              <button
+                onclick="exportData()"
+                class="action-btn bg-orange-500 hover:bg-orange-600 text-white"
+              >
+                <i class="ri-download-line text-2xl mb-2"></i>
+                <span>Export Data</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Low Stock Alerts -->
+          <div
+            class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100"
+          >
+            <h3 class="text-xl font-bold text-gray-900 mb-4">
+              <i class="ri-alert-line text-accent-500"></i>
+              Low Stock Alerts
+            </h3>
+            <div id="low-stock-list" class="space-y-3 max-h-64 overflow-y-auto">
+              <!-- Low stock items will be populated here -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POS Page -->
+      <div id="page-pos" class="page-content hidden">
+        <div class="mb-6">
+          <h2 class="text-3xl font-bold text-gray-900">Point of Sale</h2>
+          <p class="text-gray-600 mt-1 font-sinhala">නව බිල්පතක්</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Products Grid -->
+          <div class="lg:col-span-2">
+            <div
+              class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100"
+            >
+              <!-- Search Bar -->
+              <div class="mb-6">
+                <div class="relative">
+                  <i
+                    class="ri-search-line absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-xl"
+                  ></i>
+                  <input
+                    type="text"
+                    id="product-search"
+                    placeholder="Search products... (භාණ්ඩ සොයන්න)"
+                    class="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none transition-all"
+                    oninput="searchProducts(this.value)"
+                  />
+                </div>
+              </div>
+
+              <!-- Category Filters -->
+              <div class="flex flex-wrap gap-2 mb-6">
+                <button
+                  onclick="filterByCategory('all')"
+                  class="category-filter-btn active"
+                  data-category="all"
+                >
+                  <i class="ri-apps-line"></i> All
+                </button>
+                <button
+                  onclick="filterByCategory('Grocery')"
+                  class="category-filter-btn"
+                  data-category="Grocery"
+                >
+                  <i class="ri-shopping-bag-line"></i> Grocery
+                </button>
+                <button
+                  onclick="filterByCategory('Vegetables')"
+                  class="category-filter-btn"
+                  data-category="Vegetables"
+                >
+                  <i class="ri-plant-line"></i> Vegetables
+                </button>
+                <button
+                  onclick="filterByCategory('Biscuits')"
+                  class="category-filter-btn"
+                  data-category="Biscuits"
+                >
+                  <i class="ri-cake-line"></i> Biscuits
+                </button>
+                <button
+                  onclick="filterByCategory('Household')"
+                  class="category-filter-btn"
+                  data-category="Household"
+                >
+                  <i class="ri-home-4-line"></i> Household
+                </button>
+              </div>
+
+              <!-- Products Grid -->
+              <div
+                id="products-grid"
+                class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-h-[600px] overflow-y-auto"
+              >
+                <!-- Products will be populated here -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Cart / Bill Section -->
+          <div class="lg:col-span-1">
+            <div
+              class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 sticky top-24"
+            >
+              <h3 class="text-2xl font-bold text-gray-900 mb-4">
+                <i class="ri-shopping-cart-2-line text-primary-500"></i>
+                Current Bill
+              </h3>
+
+              <!-- Cart Items -->
+              <div
+                id="cart-items"
+                class="space-y-3 mb-6 max-h-80 overflow-y-auto"
+              >
+                <div class="text-center text-gray-400 py-12">
+                  <i class="ri-shopping-cart-line text-6xl mb-4"></i>
+                  <p class="font-sinhala">බිල්පත හිස්</p>
+                  <p class="text-sm">Add items to cart</p>
+                </div>
+              </div>
+
+              <!-- Total -->
+              <div class="border-t-2 border-gray-200 pt-4 mb-4">
+                <div class="flex justify-between items-center mb-2">
+                  <span class="text-gray-600">Subtotal:</span>
+                  <span class="text-lg font-semibold"
+                    >Rs. <span id="cart-subtotal">0.00</span></span
+                  >
+                </div>
+                <div class="flex justify-between items-center">
+                  <span class="text-xl font-bold text-gray-900">Total:</span>
+                  <span class="text-3xl font-bold text-primary-600"
+                    >Rs. <span id="cart-total">0.00</span></span
+                  >
+                </div>
+              </div>
+
+              <!-- Actions -->
+              <div class="space-y-3">
+                <button
+                  onclick="completeSale()"
+                  class="w-full bg-gradient-to-r from-primary-500 to-primary-700 text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg transition-all transform hover:scale-105"
+                >
+                  <i class="ri-check-line"></i>
+                  Complete Sale
+                </button>
+                <button
+                  onclick="clearCart()"
+                  class="w-full bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-all"
+                >
+                  <i class="ri-delete-bin-line"></i>
+                  Clear Cart
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inventory Page -->
+      <div id="page-inventory" class="page-content hidden">
+        <div class="mb-6 flex justify-between items-center">
+          <div>
+            <h2 class="text-3xl font-bold text-gray-900">
+              Inventory Management
+            </h2>
+            <p class="text-gray-600 mt-1 font-sinhala">තොග කළමනාකරණය</p>
+          </div>
+          <button
+            onclick="showAddProductModal()"
+            class="bg-gradient-to-r from-primary-500 to-primary-700 text-white px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-all transform hover:scale-105"
+          >
+            <i class="ri-add-line"></i>
+            Add New Product
+          </button>
+        </div>
+
+        <!-- Inventory Table -->
+        <div
+          class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100"
+        >
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-gradient-to-r from-gray-50 to-gray-100">
+                <tr>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Product Name
+                  </th>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Category
+                  </th>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Type
+                  </th>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Price
+                  </th>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Stock
+                  </th>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Status
+                  </th>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="inventory-table-body">
+                <!-- Inventory items will be populated here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reports Page -->
+      <div id="page-reports" class="page-content hidden">
+        <div class="mb-6">
+          <h2 class="text-3xl font-bold text-gray-900">Sales Reports</h2>
+          <p class="text-gray-600 mt-1 font-sinhala">විකුණුම් වාර්තා</p>
+        </div>
+
+        <!-- Date Filter -->
+        <div
+          class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 mb-6"
+        >
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2"
+                >From Date</label
+              >
+              <input
+                type="date"
+                id="report-from-date"
+                class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2"
+                >To Date</label
+              >
+              <input
+                type="date"
+                id="report-to-date"
+                class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+              />
+            </div>
+            <div class="flex items-end">
+              <button
+                onclick="generateReport()"
+                class="w-full bg-primary-500 text-white px-6 py-2 rounded-xl font-semibold hover:bg-primary-600 transition-all"
+              >
+                <i class="ri-file-chart-line"></i>
+                Generate Report
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Report Results -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div
+            class="stat-card bg-gradient-to-br from-primary-500 to-primary-700 text-white"
+          >
+            <div>
+              <p class="text-primary-100 text-sm font-medium">Total Sales</p>
+              <h3 class="text-3xl font-bold mt-2">
+                Rs. <span id="report-total-sales">0.00</span>
+              </h3>
+            </div>
+          </div>
+          <div
+            class="stat-card bg-gradient-to-br from-blue-500 to-blue-700 text-white"
+          >
+            <div>
+              <p class="text-blue-100 text-sm font-medium">
+                Total Transactions
+              </p>
+              <h3 class="text-3xl font-bold mt-2">
+                <span id="report-total-transactions">0</span>
+              </h3>
+            </div>
+          </div>
+          <div
+            class="stat-card bg-gradient-to-br from-purple-500 to-purple-700 text-white"
+          >
+            <div>
+              <p class="text-purple-100 text-sm font-medium">Average Bill</p>
+              <h3 class="text-3xl font-bold mt-2">
+                Rs. <span id="report-avg-bill">0.00</span>
+              </h3>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sales Table -->
+        <div
+          class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100"
+        >
+          <div class="p-6">
+            <h3 class="text-xl font-bold text-gray-900 mb-4">Sales Details</h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-gradient-to-r from-gray-50 to-gray-100">
+                <tr>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Bill No.
+                  </th>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Date & Time
+                  </th>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Items
+                  </th>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Total Amount
+                  </th>
+                  <th
+                    class="px-6 py-4 text-left text-sm font-semibold text-gray-700"
+                  >
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="sales-report-table-body">
+                <!-- Sales will be populated here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Page -->
+      <div id="page-settings" class="page-content hidden">
+        <div class="mb-6">
+          <h2 class="text-3xl font-bold text-gray-900">Settings</h2>
+          <p class="text-gray-600 mt-1 font-sinhala">සැකසුම්</p>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+          <div class="space-y-6">
+            <!-- Export Data -->
+            <div class="border-b border-gray-200 pb-6">
+              <h3 class="text-xl font-bold text-gray-900 mb-2">
+                Data Management
+              </h3>
+              <p class="text-gray-600 mb-4">Backup and restore your data</p>
+              <div class="flex flex-wrap gap-4">
+                <button
+                  onclick="exportData()"
+                  class="bg-primary-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-primary-600 transition-all"
+                >
+                  <i class="ri-download-line"></i>
+                  Export All Data
+                </button>
+                <button
+                  onclick="document.getElementById('import-file').click()"
+                  class="bg-blue-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-600 transition-all"
+                >
+                  <i class="ri-upload-line"></i>
+                  Import Data
+                </button>
+                <input
+                  type="file"
+                  id="import-file"
+                  accept=".json"
+                  class="hidden"
+                  onchange="importData(this)"
+                />
+              </div>
+            </div>
+
+            <!-- Clear Data -->
+            <div class="border-b border-gray-200 pb-6">
+              <h3 class="text-xl font-bold text-gray-900 mb-2">
+                Reset Database
+              </h3>
+              <p class="text-gray-600 mb-4">Clear all data and start fresh</p>
+              <button
+                onclick="confirmClearData()"
+                class="bg-accent-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-accent-600 transition-all"
+              >
+                <i class="ri-delete-bin-line"></i>
+                Clear All Data
+              </button>
+            </div>
+
+            <!-- Sample Data -->
+            <div>
+              <h3 class="text-xl font-bold text-gray-900 mb-2">Sample Data</h3>
+              <p class="text-gray-600 mb-4">Load sample products for testing</p>
+              <button
+                onclick="loadSampleData()"
+                class="bg-purple-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-purple-600 transition-all"
+              >
+                <i class="ri-database-2-line"></i>
+                Load Sample Data
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Add/Edit Product Modal -->
+    <div id="product-modal" class="modal hidden">
+      <div class="modal-overlay" onclick="closeProductModal()"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="text-2xl font-bold text-gray-900" id="modal-title">
+            Add New Product
+          </h3>
+          <button
+            onclick="closeProductModal()"
+            class="text-gray-400 hover:text-gray-600"
+          >
+            <i class="ri-close-line text-2xl"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form id="product-form" onsubmit="saveProduct(event)">
+            <input type="hidden" id="product-id" />
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2"
+                  >Product Name *</label
+                >
+                <input
+                  type="text"
+                  id="product-name"
+                  required
+                  class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2"
+                  >Category *</label
+                >
+                <select
+                  id="product-category"
+                  required
+                  class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                >
+                  <option value="">Select Category</option>
+                  <option value="Grocery">Grocery</option>
+                  <option value="Vegetables">Vegetables</option>
+                  <option value="Biscuits">Biscuits</option>
+                  <option value="Household">Household</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2"
+                  >Type *</label
+                >
+                <select
+                  id="product-type"
+                  required
+                  class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                >
+                  <option value="">Select Type</option>
+                  <option value="unit">Unit (Packets/Pieces)</option>
+                  <option value="weight">Weight (Kg/g)</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2"
+                  >Selling Price (Rs.) *</label
+                >
+                <input
+                  type="number"
+                  id="product-price"
+                  step="0.01"
+                  required
+                  class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2"
+                  >Current Stock *</label
+                >
+                <input
+                  type="number"
+                  id="product-stock"
+                  step="0.01"
+                  required
+                  class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2"
+                  >Low Stock Alert</label
+                >
+                <input
+                  type="number"
+                  id="product-min-stock"
+                  step="0.01"
+                  placeholder="5"
+                  class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div class="flex justify-end space-x-4 mt-6">
+              <button
+                type="button"
+                onclick="closeProductModal()"
+                class="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="px-6 py-3 bg-gradient-to-r from-primary-500 to-primary-700 text-white rounded-xl font-semibold hover:shadow-lg transition-all"
+              >
+                <i class="ri-save-line"></i>
+                Save Product
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quantity Input Modal -->
+    <div id="quantity-modal" class="modal hidden">
+      <div class="modal-overlay" onclick="closeQuantityModal()"></div>
+      <div class="modal-content max-w-md">
+        <div class="modal-header">
+          <h3 class="text-2xl font-bold text-gray-900">Enter Quantity</h3>
+          <button
+            onclick="closeQuantityModal()"
+            class="text-gray-400 hover:text-gray-600"
+          >
+            <i class="ri-close-line text-2xl"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="text-center mb-6">
+            <h4
+              class="text-xl font-semibold text-gray-900"
+              id="qty-product-name"
+            ></h4>
+            <p class="text-gray-600" id="qty-product-type"></p>
+          </div>
+
+          <form id="quantity-form" onsubmit="addToCartWithQuantity(event)">
+            <input type="hidden" id="qty-product-id" />
+
+            <div class="mb-6">
+              <label
+                class="block text-sm font-semibold text-gray-700 mb-2"
+                id="qty-label"
+                >Quantity</label
+              >
+              <input
+                type="number"
+                id="quantity-input"
+                step="0.01"
+                min="0.01"
+                required
+                class="w-full px-4 py-3 text-2xl text-center border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                autofocus
+              />
+            </div>
+
+            <div class="flex justify-end space-x-4">
+              <button
+                type="button"
+                onclick="closeQuantityModal()"
+                class="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="px-6 py-3 bg-gradient-to-r from-primary-500 to-primary-700 text-white rounded-xl font-semibold hover:shadow-lg transition-all"
+              >
+                <i class="ri-shopping-cart-line"></i>
+                Add to Cart
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Print Receipt Modal -->
+    <div id="receipt-modal" class="modal hidden">
+      <div class="modal-overlay" onclick="closeReceiptModal()"></div>
+      <div class="modal-content max-w-md">
+        <div class="modal-header print:hidden">
+          <h3 class="text-2xl font-bold text-gray-900">Bill Receipt</h3>
+          <button
+            onclick="closeReceiptModal()"
+            class="text-gray-400 hover:text-gray-600"
+          >
+            <i class="ri-close-line text-2xl"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div id="receipt-content" class="receipt">
+            <!-- Receipt will be generated here -->
+          </div>
+
+          <div class="flex justify-end space-x-4 mt-6 print:hidden">
+            <button
+              onclick="closeReceiptModal()"
+              class="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-all"
+            >
+              Close
+            </button>
+            <button
+              onclick="window.print()"
+              class="px-6 py-3 bg-gradient-to-r from-primary-500 to-primary-700 text-white rounded-xl font-semibold hover:shadow-lg transition-all"
+            >
+              <i class="ri-printer-line"></i>
+              Print Bill
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="db.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
