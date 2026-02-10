@@ -25,6 +25,16 @@ async function initApp() {
     console.log('Sillara-POS Application initialized!');
 }
 
+function checkAdminPassword() {
+    const password = prompt('Please enter Admin Password (සැකසුම් වෙනස් කිරීමට මුරපදය ඇතුළත් කරන්න):');
+    if (password === '1234') {
+        return true;
+    } else {
+        alert('Invalid Password! (වැරදි මුරපදයක්!)');
+        return false;
+    }
+}
+
 async function loadCategories() {
     try {
         // Fetch from categories store
@@ -81,8 +91,9 @@ async function loadCategories() {
 async function addNewCategory() {
     const input = document.getElementById('new-category-input');
     const name = input.value.trim();
-    
     if (!name) return;
+
+    if (!checkAdminPassword()) return;
     
     try {
         const id = await DB.categories.add(name);
@@ -101,6 +112,7 @@ async function addNewCategory() {
 }
 
 async function deleteCategory(id) {
+    if (!checkAdminPassword()) return;
     if (!confirm('Are you sure you want to delete this category? It will not affect existing products.')) return;
     
     try {
@@ -335,6 +347,7 @@ function addToCart(product, quantity) {
         }
         cart.push({
             productId: product.id,
+            barcode: product.barcode,
             name: product.name,
             price: product.price,
             buyingPrice: product.buyingPrice || 0,
@@ -422,6 +435,8 @@ function updateCart() {
         `;
         document.getElementById('cart-subtotal').textContent = '0.00';
         document.getElementById('cart-total').textContent = '0.00';
+        document.getElementById('cash-tendered').value = '';
+        document.getElementById('cart-balance').textContent = '0.00';
         return;
     }
     
@@ -445,6 +460,26 @@ function updateCart() {
     const total = cart.reduce((sum, item) => sum + item.total, 0);
     document.getElementById('cart-subtotal').textContent = total.toFixed(2);
     document.getElementById('cart-total').textContent = total.toFixed(2);
+    calculateBalance();
+}
+
+function calculateBalance() {
+    const total = parseFloat(document.getElementById('cart-total').textContent) || 0;
+    const tendered = parseFloat(document.getElementById('cash-tendered').value) || 0;
+    const balance = tendered > 0 ? tendered - total : 0;
+    
+    const balanceEl = document.getElementById('cart-balance');
+    if (balanceEl) {
+        balanceEl.textContent = balance.toFixed(2);
+        // Highlight in red if tendered is less than total
+        if (tendered > 0 && tendered < total) {
+            balanceEl.parentElement.classList.add('text-red-500');
+            balanceEl.parentElement.classList.remove('text-accent-600');
+        } else {
+            balanceEl.parentElement.classList.remove('text-red-500');
+            balanceEl.parentElement.classList.add('text-accent-600');
+        }
+    }
 }
 
 // Remove from cart
@@ -473,11 +508,16 @@ async function completeSale() {
     try {
         // Calculate total
         const totalAmount = cart.reduce((sum, item) => sum + item.total, 0);
-        
+        const tendered = parseFloat(document.getElementById('cash-tendered').value) || 0;
+        const balance = tendered > 0 ? tendered - totalAmount : 0;
+
         // Create sale record
         const sale = {
             totalAmount,
+            cashTendered: tendered,
+            balance: balance,
             items: cart.map(item => ({
+                barcode: item.barcode || '',
                 name: item.name,
                 quantity: item.quantity,
                 price: item.price,
@@ -560,10 +600,21 @@ async function showReceipt(saleId, sale) {
             </table>
         </div>
         
-        <div class="receipt-total">
+        <div class="receipt-total" style="padding-bottom: 0;">
             <span>TOTAL:</span>
             <span>Rs. ${sale.totalAmount.toFixed(2)}</span>
         </div>
+
+        ${sale.cashTendered > 0 ? `
+        <div class="receipt-total" style="padding: 0.25rem 0; border-top: none; font-size: 0.9rem;">
+            <span>Cash Tendered:</span>
+            <span>Rs. ${sale.cashTendered.toFixed(2)}</span>
+        </div>
+        <div class="receipt-total" style="padding-top: 0; border-top: none; font-size: 0.9rem;">
+            <span>Balance:</span>
+            <span>Rs. ${sale.balance.toFixed(2)}</span>
+        </div>
+        ` : ''}
         
         <div class="receipt-footer">
             Thank you for your business!<br>
@@ -730,6 +781,34 @@ async function deleteProduct(productId) {
 }
 
 // Reports Functions
+function setReportRange(range) {
+    const fromDateEl = document.getElementById('report-from-date');
+    const toDateEl = document.getElementById('report-to-date');
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    
+    let from = today;
+    let to = today;
+    
+    if (range === 'yesterday') {
+        const yesterday = new Date();
+        yesterday.setDate(now.getDate() - 1);
+        from = yesterday.toISOString().split('T')[0];
+        to = from;
+    } else if (range === 'thisMonth') {
+        from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    } else if (range === 'lastMonth') {
+        from = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
+        to = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+    } else if (range === 'thisYear') {
+        from = new Date(now.getFullYear(), 0, 1).toISOString().split('T')[0];
+    }
+    
+    fromDateEl.value = from;
+    toDateEl.value = to;
+    generateReport();
+}
+
 async function generateReport() {
     const fromDate = document.getElementById('report-from-date').value;
     const toDate = document.getElementById('report-to-date').value;
@@ -835,20 +914,142 @@ async function generateReport() {
     const purchases = await DB.purchases.getByDateRange(fromDate, toDate);
     const purchaseTbody = document.getElementById('purchase-history-body');
     if (purchases.length === 0) {
-        purchaseTbody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-400">No purchases found for this period</td></tr>';
+        purchaseTbody.innerHTML = '<tr><td colspan="6" class="px-6 py-4 text-center text-gray-400">No purchases found for this period</td></tr>';
     } else {
-        purchaseTbody.innerHTML = purchases.reverse().map(p => {
-             const d = new Date(p.date);
-             return `
-                <tr>
-                    <td class="px-6 py-4 text-sm text-gray-500">${d.toLocaleDateString()}</td>
-                    <td class="px-6 py-4 text-sm text-gray-900 font-medium">${p.supplier}</td>
-                    <td class="px-6 py-4 text-sm text-center">${p.items.length}</td>
-                    <td class="px-6 py-4 text-sm text-right font-bold">Rs. ${p.totalCost.toFixed(2)}</td>
-                </tr>
-             `;
-        }).join('');
+        const rows = [];
+        purchases.reverse().forEach(p => {
+            const d = new Date(p.date);
+            const dateStr = d.toLocaleDateString();
+            
+            p.items.forEach(item => {
+                const bPrice = item.buyingPrice || item.cost || 0;
+                const sPrice = item.sellingPrice || 0;
+                rows.push(`
+                    <tr class="hover:bg-gray-50 transition-colors">
+                        <td class="px-6 py-4 text-xs text-gray-500 whitespace-nowrap">${dateStr}</td>
+                        <td class="px-6 py-4 text-xs text-gray-700 font-medium">${p.supplier}</td>
+                        <td class="px-6 py-4 text-sm">
+                            <div class="font-bold text-gray-900">${item.name}</div>
+                            <div class="text-[10px] text-gray-500">${item.quantity} ${item.type === 'weight' ? 'kg' : 'pcs'}</div>
+                        </td>
+                        <td class="px-6 py-4 text-right text-sm font-semibold text-blue-600">Rs. ${bPrice.toFixed(2)}</td>
+                        <td class="px-6 py-4 text-right text-sm font-semibold text-green-600">Rs. ${sPrice.toFixed(2)}</td>
+                        <td class="px-6 py-4 text-right text-sm font-bold text-gray-900">Rs. ${(bPrice * item.quantity).toFixed(2)}</td>
+                    </tr>
+                `);
+            });
+        });
+        purchaseTbody.innerHTML = rows.join('');
     }
+}
+
+async function exportSalesCSV() {
+    const fromDate = document.getElementById('report-from-date').value;
+    const toDate = document.getElementById('report-to-date').value;
+    
+    if (!fromDate || !toDate) {
+        alert('Please select both from and to dates first');
+        return;
+    }
+    
+    const sales = await DB.sales.getByDateRange(fromDate, toDate);
+    
+    if (sales.length === 0) {
+        alert('No sales found for the selected period');
+        return;
+    }
+    
+    let csv = "Date,Bill No,Barcode,Item Name,Quantity,Sell Price,Total\n";
+    
+    for (const sale of sales) {
+        const d = new Date(sale.date);
+        const dateStr = d.toLocaleDateString('en-GB');
+        
+        for (const item of sale.items) {
+            let barcode = item.barcode;
+            // Fallback for old data without barcode stored in sale record
+            if (!barcode && item.productId) {
+                const p = await DB.products.getById(item.productId);
+                if (p) barcode = p.barcode;
+            }
+            csv += `${dateStr},${sale.id},"${barcode || ''}","${item.name}",${item.quantity},${item.price.toFixed(2)},${item.total.toFixed(2)}\n`;
+        }
+    }
+    
+    downloadCSV(csv, `Sales_Report_${fromDate}_to_${toDate}.csv`);
+}
+
+async function exportPurchasesCSV() {
+    const fromDate = document.getElementById('report-from-date').value;
+    const toDate = document.getElementById('report-to-date').value;
+    
+    if (!fromDate || !toDate) {
+        alert('Please select both from and to dates first');
+        return;
+    }
+    
+    const purchases = await DB.purchases.getByDateRange(fromDate, toDate);
+    
+    if (purchases.length === 0) {
+        alert('No purchases found for the selected period');
+        return;
+    }
+    
+    let csv = "Date,Item Name,Barcode,Quantity,Buy Price,Total Cost\n";
+    
+    for (const p of purchases) {
+        const d = new Date(p.date);
+        const dateStr = d.toLocaleDateString('en-GB');
+        
+        for (const item of p.items) {
+            let barcode = item.barcode;
+            // Fallback for old data
+            if (!barcode && item.productId) {
+                const prod = await DB.products.getById(item.productId);
+                if (prod) barcode = prod.barcode;
+            }
+            const bp = item.buyingPrice || item.cost || 0;
+            csv += `${dateStr},"${item.name}","${barcode || ''}",${item.quantity},${bp.toFixed(2)},${(item.total || (bp * item.quantity)).toFixed(2)}\n`;
+        }
+    }
+    
+    downloadCSV(csv, `Purchase_Report_${fromDate}_to_${toDate}.csv`);
+}
+
+async function exportStockCSV() {
+    const products = await DB.products.getAll();
+    
+    if (products.length === 0) {
+        alert('No products in stock to export');
+        return;
+    }
+    
+    let csv = "Barcode,Item Name,Stock Qty,Buying Price,Selling Price,Total Value (Cost)\n";
+    
+    products.forEach(p => {
+        const bp = p.buyingPrice || 0;
+        const sp = p.price || 0;
+        const qty = p.stock || 0;
+        const totalValue = bp * qty;
+        
+        csv += `"${p.barcode || ''}","${p.name}",${qty},${bp.toFixed(2)},${sp.toFixed(2)},${totalValue.toFixed(2)}\n`;
+    });
+    
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    downloadCSV(csv, `Current_Stock_Report_${dateStr}.csv`);
+}
+
+function downloadCSV(csv, filename) {
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
 // Purchase / Receive Stock Logic
@@ -928,8 +1129,29 @@ async function handlePurchaseBarcode(barcode) {
     clearTimeout(purchaseBarcodeTimeout);
     purchaseBarcodeTimeout = setTimeout(async () => {
         const product = await DB.products.getByBarcode(barcode);
+        
         if (product) {
-            selectPurchaseProduct(product.id);
+            // Found: Populate fields and set to "Update" mode
+            document.getElementById('purchase-product-id').value = product.id;
+            document.getElementById('purchase-is-new').value = 'false';
+            
+            document.getElementById('purchase-name').value = product.name;
+            document.getElementById('purchase-category').value = product.category;
+            document.getElementById('purchase-type').value = product.type;
+            document.getElementById('purchase-cost').value = product.buyingPrice || '';
+            document.getElementById('purchase-price').value = product.price || '';
+            
+            // Move focus to quantity
+            document.getElementById('purchase-qty').focus();
+        } else {
+            // Not Found: Switch to "New" mode but keep barcode
+            document.getElementById('purchase-product-id').value = '';
+            document.getElementById('purchase-is-new').value = 'true';
+            
+            // Should we clear other fields? Probably yes to avoid confusion with previous search
+            document.getElementById('purchase-name').value = '';
+            document.getElementById('purchase-cost').value = '';
+            document.getElementById('purchase-price').value = '';
         }
     }, 400);
 }
@@ -1188,9 +1410,12 @@ async function savePurchase() {
             // Prepare Item for Purchase Record
             finalItems.push({
                 productId: pId,
+                barcode: item.barcode,
                 name: item.name,
                 quantity: item.quantity,
-                cost: item.buyingPrice,
+                type: item.type,
+                buyingPrice: item.buyingPrice,
+                sellingPrice: item.sellingPrice,
                 total: item.total
             });
         }
@@ -1281,6 +1506,11 @@ async function exportData() {
 async function importData(input) {
     const file = input.files[0];
     if (!file) return;
+
+    if (!checkAdminPassword()) {
+        input.value = '';
+        return;
+    }
     
     try {
         const text = await file.text();
@@ -1308,6 +1538,7 @@ async function importData(input) {
 }
 
 async function confirmClearData() {
+    if (!checkAdminPassword()) return;
     if (!confirm('⚠️ WARNING: This will delete ALL data permanently! Are you sure?')) {
         return;
     }
@@ -1330,6 +1561,7 @@ async function confirmClearData() {
 }
 
 async function loadSampleData() {
+    if (!checkAdminPassword()) return;
     if (!confirm('Load sample products and sales data?')) {
         return;
     }
