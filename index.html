@@ -360,6 +360,8 @@
                     placeholder="Search products... (භාණ්ඩ සොයන්න)"
                     class="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none transition-all"
                     oninput="searchProducts(this.value)"
+                    onkeydown="handleSearchKeydown(event)"
+                    autofocus
                   />
                 </div>
               </div>
@@ -482,13 +484,15 @@
             </h2>
             <p class="text-gray-600 mt-1 font-sinhala">තොග කළමනාකරණය</p>
           </div>
-          <button
-            onclick="showAddProductModal()"
-            class="bg-gradient-to-r from-primary-500 to-primary-700 text-white px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-all transform hover:scale-105"
-          >
-            <i class="ri-add-line"></i>
-            Add New Product
-          </button>
+          <div class="flex gap-4">
+            <button
+              onclick="showReceiveStockModal()"
+              class="w-full bg-gradient-to-r from-green-500 to-green-700 text-white px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-all transform hover:scale-105"
+            >
+              <i class="ri-truck-line"></i>
+              Receive Stock / Add Products (තොග ලබා ගැනීම)
+            </button>
+          </div>
         </div>
 
         <!-- Inventory Table -->
@@ -589,7 +593,7 @@
         </div>
 
         <!-- Report Results -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           <div
             class="stat-card bg-gradient-to-br from-primary-500 to-primary-700 text-white"
           >
@@ -600,6 +604,18 @@
               </h3>
             </div>
           </div>
+          
+          <div
+            class="stat-card bg-gradient-to-br from-green-500 to-green-700 text-white"
+          >
+            <div>
+              <p class="text-green-100 text-sm font-medium">Total Profit</p>
+              <h3 class="text-3xl font-bold mt-2">
+                Rs. <span id="report-total-profit">0.00</span>
+              </h3>
+            </div>
+          </div>
+
           <div
             class="stat-card bg-gradient-to-br from-blue-500 to-blue-700 text-white"
           >
@@ -622,6 +638,55 @@
               </h3>
             </div>
           </div>
+        </div>
+
+        <!-- Income Statement -->
+        <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 mb-6">
+            <h3 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <i class="ri-money-dollar-circle-line text-green-600"></i>
+                Income Statement (ලාභ අලාභ ගිණුම)
+            </h3>
+            
+            <div class="space-y-3">
+                <div class="flex justify-between items-center text-sm">
+                    <span class="text-gray-600">Total Revenue (මුළු විකුණුම්)</span>
+                    <span class="font-bold text-gray-900">Rs. <span id="is-revenue">0.00</span></span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                    <span class="text-gray-600">Cost of Goods Sold (බඩු වල වියදම)</span>
+                    <span class="text-red-500">(Rs. <span id="is-cogs">0.00</span>)</span>
+                </div>
+                
+                <div class="border-t border-gray-200 my-2"></div>
+                
+                <div class="flex justify-between items-center text-base">
+                    <span class="font-bold text-gray-800">Gross Profit (දළ ලාභය)</span>
+                    <span class="font-bold text-green-600">Rs. <span id="is-gross-profit">0.00</span></span>
+                </div>
+                
+                <div class="flex justify-between items-center text-sm pl-4 mt-2">
+                    <span class="text-gray-600">Other Expenses (වෙනත් වියදම්)</span>
+                    <span class="text-red-500">(Rs. <span id="is-expenses">0.00</span>)</span>
+                </div>
+                
+                <div class="border-t-2 border-gray-300 my-2"></div>
+                
+                <div class="flex justify-between items-center text-lg">
+                    <span class="font-bold text-gray-900">Net Profit (ශුද්ධ ලාභය)</span>
+                    <span class="font-bold text-primary-600">Rs. <span id="is-net-profit">0.00</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Products -->
+        <div class="mb-6">
+            <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+                <h3 class="text-xl font-bold text-gray-900 mb-4">Top 5 Products (Best Sellers)</h3>
+                <div id="report-top-products" class="space-y-3">
+                    <p class="text-gray-400 text-center py-4">Generate report to see top products</p>
+                </div>
+            </div>
+             <!-- We can add another card here later, e.g. Payment Methods or Category Shares -->
         </div>
 
         <!-- Sales Table -->
@@ -668,6 +733,28 @@
             </table>
           </div>
         </div>
+
+        <!-- Purchase History Table -->
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100 mt-8 mb-6">
+          <div class="p-6">
+            <h3 class="text-xl font-bold text-gray-900 mb-4">Purchase History (මිලදී ගැනුම් ඉතිහාසය)</h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-gradient-to-r from-gray-50 to-gray-100">
+                <tr>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Date</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Supplier</th>
+                  <th class="px-6 py-4 text-center text-sm font-semibold text-gray-700">Items</th>
+                  <th class="px-6 py-4 text-right text-sm font-semibold text-gray-700">Total Cost</th>
+                </tr>
+              </thead>
+              <tbody id="purchase-history-body" class="divide-y divide-gray-100">
+                <!-- Data populated via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- Settings Page -->
@@ -677,8 +764,106 @@
           <p class="text-gray-600 mt-1 font-sinhala">සැකසුම්</p>
         </div>
 
+        <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 mb-6">
+          <div class="space-y-6">
+            <!-- Shop Information -->
+            <div class="border-b border-gray-200 pb-6">
+              <h3 class="text-xl font-bold text-gray-900 mb-2">
+                <i class="ri-store-2-line text-primary-500"></i>
+                Shop Information
+              </h3>
+              <p class="text-gray-600 mb-4 font-sinhala">කඩේ විස්තර (බිල් එකේ දැක්වේ)</p>
+              
+              <form id="shop-settings-form" onsubmit="saveShopSettings(event)" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                      Shop Name *
+                      <span class="text-xs text-gray-500 font-sinhala">(කඩේ නම)</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="shop-name"
+                      required
+                      placeholder="Sillara Badu Kadaya"
+                      class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                      Phone Number *
+                      <span class="text-xs text-gray-500 font-sinhala">(දුරකථන)</span>
+                    </label>
+                    <input
+                      type="tel"
+                      id="shop-phone"
+                      required
+                      placeholder="077-1234567"
+                      class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                    />
+                  </div>
+                  
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                      Address
+                      <span class="text-xs text-gray-500 font-sinhala">(ලිපිනය)</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="shop-address"
+                      placeholder="No. 123, Main Street, Colombo"
+                      class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                    />
+                  </div>
+                  
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                      Additional Info
+                      <span class="text-xs text-gray-500 font-sinhala">(අමතර තොරතුරු)</span>
+                    </label>
+                    <textarea
+                      id="shop-info"
+                      rows="2"
+                      placeholder="e.g., Opening hours, email, etc."
+                      class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                    ></textarea>
+                  </div>
+                </div>
+                
+                <div class="flex justify-end">
+                  <button
+                    type="submit"
+                    class="bg-gradient-to-r from-primary-500 to-primary-700 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-105"
+                  >
+                    <i class="ri-save-line"></i>
+                    Save Shop Settings
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
         <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
           <div class="space-y-6">
+            <!-- Category Management -->
+            <div class="border-b border-gray-200 pb-6">
+              <h3 class="text-xl font-bold text-gray-900 mb-2">Category Management</h3>
+              <p class="text-gray-600 mb-4 font-sinhala">කැටගරි කළමනාකරණය</p>
+              
+              <div class="flex gap-2 mb-4">
+                <input type="text" id="new-category-input" placeholder="New Category Name..." class="flex-1 px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none">
+                <button onclick="addNewCategory()" class="bg-primary-500 text-white px-4 py-2 rounded-xl font-semibold hover:bg-primary-600 transition-all">
+                  <i class="ri-add-line"></i> Add
+                </button>
+              </div>
+
+              <div id="settings-category-list" class="flex flex-wrap gap-2">
+                <!-- Categories will be listed here -->
+              </div>
+            </div>
+
             <!-- Export Data -->
             <div class="border-b border-gray-200 pb-6">
               <h3 class="text-xl font-bold text-gray-900 mb-2">
@@ -774,6 +959,25 @@
                 />
               </div>
 
+              <div class="md:col-span-2">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                  Barcode (Scan or Type)
+                  <span class="text-xs text-gray-500 font-sinhala">(බාර්කෝඩ්)</span>
+                </label>
+                <div class="relative">
+                  <i class="ri-barcode-line absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-xl"></i>
+                  <input
+                    type="text"
+                    id="product-barcode"
+                    placeholder="Scan barcode here..."
+                    class="w-full pl-12 pr-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                  />
+                  <button type="button" onclick="document.getElementById('product-barcode').focus()" class="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-500 text-sm hover:underline">
+                    Use Scanner
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label class="block text-sm font-semibold text-gray-700 mb-2"
                   >Category *</label
@@ -781,14 +985,9 @@
                 <select
                   id="product-category"
                   required
-                  class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                  class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none bg-white font-bold text-gray-800"
                 >
-                  <option value="">Select Category</option>
-                  <option value="Grocery">Grocery</option>
-                  <option value="Vegetables">Vegetables</option>
-                  <option value="Biscuits">Biscuits</option>
-                  <option value="Household">Household</option>
-                  <option value="Other">Other</option>
+                  <!-- Categories will be loaded here dynamically -->
                 </select>
               </div>
 
@@ -805,6 +1004,19 @@
                   <option value="unit">Unit (Packets/Pieces)</option>
                   <option value="weight">Weight (Kg/g)</option>
                 </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2"
+                  >Buying Price (Rs.)</label
+                >
+                <input
+                  type="number"
+                  id="product-buying-price"
+                  step="0.01"
+                  placeholder="0.00"
+                  class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none"
+                />
               </div>
 
               <div>
@@ -968,7 +1180,134 @@
       </div>
     </div>
 
-    <!-- Scripts -->
+    <!-- Receive Stock Modal -->
+    <div id="receive-stock-modal" class="modal hidden">
+      <div class="modal-overlay" onclick="closeReceiveStockModal()"></div>
+      <div class="modal-content max-w-4xl max-h-[90vh] overflow-y-auto">
+        <div class="modal-header">
+          <h3 class="text-2xl font-bold text-gray-900">Receive Stock (Purchasing)</h3>
+          <button onclick="closeReceiveStockModal()" class="text-gray-400 hover:text-gray-600">
+            <i class="ri-close-line text-2xl"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Supplier Name</label>
+                    <input type="text" id="purchase-supplier" class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" placeholder="Enter Supplier Name">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Date</label>
+                    <input type="date" id="purchase-date" class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none">
+                </div>
+            </div>
+
+            <!-- Add Item Config -->
+            <div class="bg-gray-50 p-4 rounded-xl mb-6 border border-gray-200">
+                <h4 class="font-bold text-gray-700 mb-4 flex justify-between">
+                    <span>Add Item to Purchase</span>
+                    <span class="text-xs text-gray-500 font-normal">Scan existing or fill details for new product</span>
+                </h4>
+                
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                    <!-- Row 1 -->
+                    <div class="md:col-span-3">
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Barcode (Scan/Type)</label>
+                        <div class="relative">
+                            <input type="text" id="purchase-barcode" class="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500" placeholder="Scan..." oninput="handlePurchaseBarcode(this.value)" onkeypress="if(event.key === 'Enter') handlePurchaseBarcodeEnter(this.value)">
+                            <i class="ri-barcode-line absolute left-2.5 top-2.5 text-gray-400"></i>
+                        </div>
+                    </div>
+                    
+                    <div class="md:col-span-4 relative">
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Product Name (Search)</label>
+                        <input type="text" id="purchase-name" class="w-full px-3 py-2 border border-blue-200 bg-white rounded-lg focus:outline-none focus:border-primary-500" placeholder="Product Name" oninput="searchPurchaseProducts(this.value)">
+                        <input type="hidden" id="purchase-product-id">
+                        <input type="hidden" id="purchase-is-new" value="true">
+                        <div id="purchase-search-results" class="hidden absolute bg-white shadow-xl z-50 border border-gray-100 rounded-lg mt-1 w-full max-h-48 overflow-y-auto left-0"></div>
+                    </div>
+                    
+                    <div class="md:col-span-3">
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Category</label>
+                         <select id="purchase-category" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 bg-white text-sm font-bold">
+                             <!-- Categories loaded dynamically -->
+                         </select>
+                         <datalist id="category-list"></datalist>
+                    </div>
+
+                    <div class="md:col-span-2">
+                         <label class="block text-xs font-semibold text-gray-500 mb-1">Type</label>
+                         <select id="purchase-type" class="w-full px-2 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 text-sm">
+                             <option value="unit">Unit (Pcs)</option>
+                             <option value="weight">Weight (Kg)</option>
+                         </select>
+                    </div>
+
+                    <!-- Row 2 -->
+                    <div class="md:col-span-3">
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Buying Price (Cost)</label>
+                        <input type="number" id="purchase-cost" step="0.01" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500" placeholder="0.00">
+                    </div>
+
+                    <div class="md:col-span-3">
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Selling Price (New)</label>
+                        <input type="number" id="purchase-price" step="0.01" class="w-full px-3 py-2 border border-green-200 bg-white rounded-lg focus:outline-none focus:border-green-500" placeholder="0.00">
+                    </div>
+                    
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Quantity</label>
+                        <input type="number" id="purchase-qty" step="0.01" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 font-bold" placeholder="Qty">
+                    </div>
+                    
+                    <div class="md:col-span-2 flex items-center h-10">
+                        <label class="flex items-center space-x-2 cursor-pointer bg-white px-2 py-1 rounded border border-gray-200 w-full justify-center">
+                            <input type="checkbox" id="purchase-free-item" class="w-4 h-4 text-primary-600 rounded focus:ring-primary-500">
+                            <span class="text-xs font-medium text-gray-700">Free Item</span>
+                        </label>
+                    </div>
+                    
+                    <div class="md:col-span-2">
+                        <button onclick="addPurchaseItem()" class="w-full bg-primary-600 text-white px-3 py-2 rounded-lg font-bold hover:bg-primary-700 transition-all shadow-md">
+                            <i class="ri-add-line mr-1"></i> Add
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Items Table -->
+            <div class="overflow-x-auto mb-6">
+                <table class="w-full">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 w-1/3">Product</th>
+                            <th class="px-4 py-2 text-right text-xs font-semibold text-gray-500">Sell Price (Rs)</th>
+                            <th class="px-4 py-2 text-right text-xs font-semibold text-gray-500">Qty</th>
+                            <th class="px-4 py-2 text-right text-xs font-semibold text-gray-500">Unit Cost</th>
+                            <th class="px-4 py-2 text-right text-xs font-semibold text-gray-500">Total</th>
+                            <th class="px-4 py-2 text-center text-xs font-semibold text-gray-500"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="purchase-items-body">
+                        <!-- Dynamic items -->
+                    </tbody>
+                    <tfoot class="bg-gray-50 font-bold">
+                        <tr>
+                            <td colspan="3" class="px-4 py-2 text-right">Total Purchase Cost:</td>
+                            <td class="px-4 py-2 text-right">Rs. <span id="purchase-total">0.00</span></td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            <div class="flex justify-end space-x-4">
+                <button onclick="closeReceiveStockModal()" class="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-all">Cancel</button>
+                <button onclick="savePurchase()" class="px-6 py-3 bg-gradient-to-r from-green-500 to-green-700 text-white rounded-xl font-semibold hover:shadow-lg transition-all">Save Stock</button>
+            </div>
+        </div>
+      </div>
+    </div>
+
     <script src="db.js"></script>
     <script src="app.js"></script>
   </body>

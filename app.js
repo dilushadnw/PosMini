@@ -4,6 +4,7 @@ let currentPage = 'dashboard';
 let cart = [];
 let products = [];
 let currentFilter = 'all';
+let purchaseCart = [];
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
@@ -19,8 +20,95 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Initialize application
 async function initApp() {
     await loadProducts();
+    await loadCategories();
     await updateDashboard();
     console.log('Sillara-POS Application initialized!');
+}
+
+async function loadCategories() {
+    try {
+        // Fetch from categories store
+        let categories = await DB.categories.getAll();
+        
+        // If empty (e.g., first run), try to seed from existing products
+        if (categories.length === 0) {
+            const allProducts = await DB.products.getAll();
+            const uniqueCats = [...new Set(allProducts.map(p => p.category))].filter(Boolean);
+            for (const cat of uniqueCats) {
+                await DB.categories.add(cat);
+            }
+            categories = await DB.categories.getAll();
+        }
+
+        // Populate selects
+        const selects = ['product-category', 'purchase-category'];
+        selects.forEach(id => {
+            const select = document.getElementById(id);
+            if (select) {
+                const currentVal = select.value;
+                select.innerHTML = '<option value="">Select Category</option>' + 
+                    categories.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+                if (currentVal) select.value = currentVal;
+            }
+        });
+
+        const list = document.getElementById('category-list');
+        if (list) {
+            list.innerHTML = categories.map(c => `<option value="${c.name}">`).join('');
+        }
+
+        // Populate settings list
+        const settingsList = document.getElementById('settings-category-list');
+        if (settingsList) {
+            settingsList.innerHTML = categories.map(c => `
+                <div class="flex items-center bg-gray-100 px-3 py-1 rounded-full text-sm border border-gray-200">
+                    <span class="mr-2">${c.name}</span>
+                    <button onclick="deleteCategory(${c.id})" class="text-red-500 hover:text-red-700">
+                        <i class="ri-close-circle-fill"></i>
+                    </button>
+                </div>
+            `).join('');
+            
+            if (categories.length === 0) {
+                settingsList.innerHTML = '<p class="text-sm text-gray-400">No categories added yet.</p>';
+            }
+        }
+    } catch (error) {
+        console.error('Error loading categories:', error);
+    }
+}
+
+async function addNewCategory() {
+    const input = document.getElementById('new-category-input');
+    const name = input.value.trim();
+    
+    if (!name) return;
+    
+    try {
+        const id = await DB.categories.add(name);
+        input.value = '';
+        await loadCategories();
+        
+        // Auto-select the new category in forms
+        const selects = ['product-category', 'purchase-category'];
+        selects.forEach(secId => {
+            const select = document.getElementById(secId);
+            if (select) select.value = name;
+        });
+    } catch (e) {
+        alert('Category might already exist');
+    }
+}
+
+async function deleteCategory(id) {
+    if (!confirm('Are you sure you want to delete this category? It will not affect existing products.')) return;
+    
+    try {
+        await DB.categories.delete(id);
+        await loadCategories();
+    } catch (error) {
+        console.error('Error deleting category:', error);
+    }
 }
 
 // Page Navigation
@@ -53,10 +141,17 @@ function showPage(pageName) {
         updateDashboard();
     } else if (pageName === 'pos') {
         displayProducts();
+        setTimeout(() => {
+            const search = document.getElementById('product-search');
+            if (search) search.focus();
+        }, 100);
     } else if (pageName === 'inventory') {
         displayInventory();
     } else if (pageName === 'reports') {
         generateReport();
+    } else if (pageName === 'settings') {
+        loadShopSettings();
+        loadCategories();
     }
 }
 
@@ -177,6 +272,80 @@ function searchProducts(query) {
     displayProducts(query);
 }
 
+// Search products with Barcode support
+async function handleSearchKeydown(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const query = event.target.value.trim();
+        
+        if (!query) return;
+
+        // Try to find by exact barcode match first
+        const productByBarcode = await DB.products.getByBarcode(query);
+        
+        if (productByBarcode) {
+            // Found by barcode! Add to cart immediately
+            if (productByBarcode.stock <= 0) {
+                alert(`Out of Stock: ${productByBarcode.name}`);
+                event.target.value = '';
+                return;
+            }
+            
+            // If unit type, add 1. If weight, show modal?
+            // For speed, let's just add 1 unit/kg and let user edit quantity if needed
+            // Or better: show quantity modal for weight, auto-add for unit
+            
+            if (productByBarcode.type === 'weight') {
+                showQuantityModal(productByBarcode.id);
+            } else {
+                addToCart(productByBarcode, 1);
+                // Visual feedback
+                const notification = document.createElement('div');
+                notification.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-xl shadow-lg transform transition-all duration-500 z-50 flex items-center gap-2';
+                notification.innerHTML = `<i class="ri-check-line text-xl"></i> Added ${productByBarcode.name}`;
+                document.body.appendChild(notification);
+                setTimeout(() => {
+                    notification.style.opacity = '0';
+                    setTimeout(() => notification.remove(), 500);
+                }, 2000);
+            }
+            
+            event.target.value = ''; // Clear search
+            displayProducts(''); // Reset grid
+        }
+    }
+}
+
+// Add Item Helper
+function addToCart(product, quantity) {
+    // Check if product already in cart
+    const existingItem = cart.find(item => item.productId === product.id);
+    
+    if (existingItem) {
+        if (existingItem.quantity + quantity > product.stock) {
+            alert(`Not enough stock! Available: ${product.stock}`);
+            return;
+        }
+        existingItem.quantity += quantity;
+        existingItem.total = existingItem.quantity * existingItem.price;
+    } else {
+        if (quantity > product.stock) {
+            alert(`Not enough stock! Available: ${product.stock}`);
+            return;
+        }
+        cart.push({
+            productId: product.id,
+            name: product.name,
+            price: product.price,
+            buyingPrice: product.buyingPrice || 0,
+            quantity: quantity,
+            type: product.type,
+            total: product.price * quantity
+        });
+    }
+    updateCart();
+}
+
 // Filter by category
 function filterByCategory(category) {
     currentFilter = category;
@@ -226,31 +395,17 @@ function addToCartWithQuantity(event) {
     const product = products.find(p => p.id === productId);
     if (!product) return;
     
-    // Check stock
-    if (quantity > product.stock) {
-        alert(`Not enough stock! Available: ${product.stock} ${product.type === 'weight' ? 'kg' : 'units'}`);
-        return;
-    }
-    
-    // Check if product already in cart
-    const existingItem = cart.find(item => item.productId === productId);
-    
-    if (existingItem) {
-        existingItem.quantity += quantity;
-        existingItem.total = existingItem.quantity * existingItem.price;
-    } else {
-        cart.push({
-            productId: product.id,
-            name: product.name,
-            price: product.price,
-            quantity: quantity,
-            type: product.type,
-            total: product.price * quantity
-        });
-    }
-    
-    updateCart();
+    addToCart(product, quantity);
     closeQuantityModal();
+    
+    // If it was from barcode scan (search box might still have text?)
+    // Actually, usually quantity modal is from click.
+    // If from barcode, we might want to clear search.
+    const searchInput = document.getElementById('product-search');
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.focus();
+    }
 }
 
 // Update cart display
@@ -326,6 +481,7 @@ async function completeSale() {
                 name: item.name,
                 quantity: item.quantity,
                 price: item.price,
+                buyingPrice: item.buyingPrice || 0,
                 total: item.total
             }))
         };
@@ -360,16 +516,21 @@ async function completeSale() {
 }
 
 // Show receipt
-function showReceipt(saleId, sale) {
+async function showReceipt(saleId, sale) {
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-GB');
     const timeStr = now.toLocaleTimeString('en-GB');
     
+    // Get shop settings
+    const shopSettings = await DB.shop_settings.get();
+    
     const receiptContent = `
         <div class="receipt-header">
-            <div class="receipt-title">සිල්ලර බඩු කඩය</div>
-            <div class="receipt-title">Sillara Store</div>
-            <div class="receipt-info">
+            <div class="receipt-title">${shopSettings.name}</div>
+            ${shopSettings.phone ? `<div class="receipt-info">Tel: ${shopSettings.phone}</div>` : ''}
+            ${shopSettings.address ? `<div class="receipt-info">${shopSettings.address}</div>` : ''}
+            ${shopSettings.info ? `<div class="receipt-info" style="font-size: 0.75rem;">${shopSettings.info}</div>` : ''}
+            <div class="receipt-info" style="margin-top: 0.5rem; border-top: 1px dashed #d1d5db; padding-top: 0.5rem;">
                 Bill #: ${saleId}<br>
                 Date: ${dateStr}<br>
                 Time: ${timeStr}
@@ -419,8 +580,6 @@ function showReceipt(saleId, sale) {
 function closeReceiptModal() {
     document.getElementById('receipt-modal').classList.add('hidden');
 }
-
-// Inventory Management
 async function displayInventory() {
     const products = await DB.products.getAll();
     const tbody = document.getElementById('inventory-table-body');
@@ -428,7 +587,7 @@ async function displayInventory() {
     if (products.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" class="text-center py-12 text-gray-400">
+                <td colspan="8" class="text-center py-12 text-gray-400">
                     <i class="ri-inbox-line text-6xl mb-4 block"></i>
                     <p class="font-sinhala">භාණ්ඩ නැත</p>
                     <p>No products in inventory</p>
@@ -453,7 +612,10 @@ async function displayInventory() {
         
         return `
             <tr>
-                <td class="font-semibold text-gray-900">${product.name}</td>
+                <td class="font-semibold text-gray-900">
+                    ${product.name}
+                    ${product.barcode ? `<br><span class="text-xs text-gray-400 font-mono">${product.barcode}</span>` : ''}
+                </td>
                 <td><span class="text-sm text-gray-600">${product.category}</span></td>
                 <td><span class="text-sm text-gray-600 capitalize">${product.type}</span></td>
                 <td class="font-semibold text-primary-600">Rs. ${product.price.toFixed(2)}</td>
@@ -493,13 +655,17 @@ async function showEditProductModal(productId) {
     document.getElementById('modal-title').textContent = 'Edit Product';
     document.getElementById('product-id').value = product.id;
     document.getElementById('product-name').value = product.name;
+    document.getElementById('product-barcode').value = product.barcode || '';
     document.getElementById('product-category').value = product.category;
     document.getElementById('product-type').value = product.type;
+    document.getElementById('product-buying-price').value = product.buyingPrice || '';
     document.getElementById('product-price').value = product.price;
     document.getElementById('product-stock').value = product.stock;
     document.getElementById('product-min-stock').value = product.minStock || 5;
     
     document.getElementById('product-modal').classList.remove('hidden');
+    // Focus on barcode input for quick editing
+    setTimeout(() => document.getElementById('product-barcode').focus(), 100);
 }
 
 function closeProductModal() {
@@ -511,10 +677,14 @@ async function saveProduct(event) {
     event.preventDefault();
     
     const productId = document.getElementById('product-id').value;
+    const buyingPriceVal = document.getElementById('product-buying-price').value;
+
     const productData = {
         name: document.getElementById('product-name').value,
+        barcode: document.getElementById('product-barcode').value.trim(),
         category: document.getElementById('product-category').value,
         type: document.getElementById('product-type').value,
+        buyingPrice: buyingPriceVal ? parseFloat(buyingPriceVal) : 0,
         price: parseFloat(document.getElementById('product-price').value),
         stock: parseFloat(document.getElementById('product-stock').value),
         minStock: parseFloat(document.getElementById('product-min-stock').value) || 5
@@ -569,61 +739,480 @@ async function generateReport() {
         return;
     }
     
+    // --- 1. SALES REPORT ---
     const sales = await DB.sales.getByDateRange(fromDate, toDate);
     
-    // Calculate statistics
+    // Stats
     const totalSales = sales.reduce((sum, sale) => sum + sale.totalAmount, 0);
     const totalTransactions = sales.length;
     const avgBill = totalTransactions > 0 ? totalSales / totalTransactions : 0;
     
-    // Update stats
+    // Profit Logic
+    const totalCost = sales.reduce((sum, sale) => {
+        const saleCost = sale.items.reduce((isum, item) => {
+            const itemBuyingPrice = item.buyingPrice || 0;
+            return isum + (itemBuyingPrice * item.quantity);
+        }, 0);
+        return sum + saleCost;
+    }, 0);
+    
+    const totalProfit = totalSales - totalCost;
+    const margin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
+    
+    // Update Stats UI
     document.getElementById('report-total-sales').textContent = totalSales.toFixed(2);
+    document.getElementById('report-total-profit').innerHTML = 
+        `${totalProfit.toFixed(2)} <span class="text-sm font-normal opacity-80">(${margin.toFixed(1)}%)</span>`;
     document.getElementById('report-total-transactions').textContent = totalTransactions;
     document.getElementById('report-avg-bill').textContent = avgBill.toFixed(2);
     
-    // Display sales table
-    const tbody = document.getElementById('sales-report-table-body');
+    // Top Products Logic
+    const productStats = {};
+    sales.forEach(sale => {
+        sale.items.forEach(item => {
+            if (!productStats[item.name]) productStats[item.name] = { qty: 0, revenue: 0 };
+            productStats[item.name].qty += item.quantity;
+            productStats[item.name].revenue += item.total;
+        });
+    });
     
+    const topProducts = Object.entries(productStats)
+        .map(([name, stats]) => ({ name, ...stats }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
+        
+    const topProductsList = document.getElementById('report-top-products');
+    if (topProducts.length === 0) {
+        topProductsList.innerHTML = '<p class="text-gray-400 text-center py-4">No sales data found</p>';
+    } else {
+        topProductsList.innerHTML = topProducts.map((p, i) => `
+            <div class="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-xl transition-colors">
+                <div class="flex items-center gap-3">
+                    <span class="w-8 h-8 flex items-center justify-center bg-primary-100 text-primary-600 rounded-full font-bold text-sm">${i+1}</span>
+                    <span class="font-medium text-gray-700">${p.name}</span>
+                </div>
+                <div class="text-right">
+                    <p class="font-bold text-gray-900">${p.qty} <span class="text-xs font-normal text-gray-500">sold</span></p>
+                    <p class="text-xs text-gray-500">Rs. ${p.revenue.toFixed(2)}</p>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Sales Table
+    const tbody = document.getElementById('sales-report-table-body');
     if (sales.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="5" class="text-center py-12 text-gray-400">
-                    <i class="ri-file-list-line text-6xl mb-4 block"></i>
-                    <p class="font-sinhala">විකුණුම් නැත</p>
-                    <p>No sales found for selected period</p>
-                </td>
-            </tr>
-        `;
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center py-12 text-gray-400"><i class="ri-file-list-line text-6xl mb-4 block"></i><p class="font-sinhala">විකුණුම් නැත</p><p>No sales found for selected period</p></td></tr>`;
+    } else {
+        tbody.innerHTML = sales.reverse().map(sale => {
+            const date = new Date(sale.date);
+            const dateStr = date.toLocaleDateString('en-GB');
+            const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+            return `
+                <tr>
+                    <td class="font-semibold text-primary-600">#${sale.id}</td>
+                    <td><div>${dateStr}</div><div class="text-xs text-gray-500">${timeStr}</div></td>
+                    <td><div class="text-sm text-gray-600">${sale.items.length} item${sale.items.length > 1 ? 's' : ''}</div></td>
+                    <td class="font-bold text-gray-900">Rs. ${sale.totalAmount.toFixed(2)}</td>
+                    <td><button onclick="viewSaleDetails(${sale.id})" class="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded-lg transition-all"><i class="ri-eye-line"></i> View</button></td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // --- 2. INCOME STATEMENT ---
+    const expenses = await DB.expenses.getByDateRange(fromDate, toDate);
+    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const netProfit = totalProfit - totalExpenses;
+
+    document.getElementById('is-revenue').textContent = totalSales.toFixed(2);
+    document.getElementById('is-cogs').textContent = totalCost.toFixed(2);
+    document.getElementById('is-gross-profit').textContent = totalProfit.toFixed(2);
+    document.getElementById('is-expenses').textContent = totalExpenses.toFixed(2);
+    document.getElementById('is-net-profit').textContent = netProfit.toFixed(2);
+
+    // --- 3. PURCHASE HISTORY ---
+    const purchases = await DB.purchases.getByDateRange(fromDate, toDate);
+    const purchaseTbody = document.getElementById('purchase-history-body');
+    if (purchases.length === 0) {
+        purchaseTbody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-400">No purchases found for this period</td></tr>';
+    } else {
+        purchaseTbody.innerHTML = purchases.reverse().map(p => {
+             const d = new Date(p.date);
+             return `
+                <tr>
+                    <td class="px-6 py-4 text-sm text-gray-500">${d.toLocaleDateString()}</td>
+                    <td class="px-6 py-4 text-sm text-gray-900 font-medium">${p.supplier}</td>
+                    <td class="px-6 py-4 text-sm text-center">${p.items.length}</td>
+                    <td class="px-6 py-4 text-sm text-right font-bold">Rs. ${p.totalCost.toFixed(2)}</td>
+                </tr>
+             `;
+        }).join('');
+    }
+}
+
+// Purchase / Receive Stock Logic
+// Purchase / Receive Stock Logic
+function showReceiveStockModal() {
+    console.log('Opening Receive Stock Modal...');
+    try {
+        purchaseCart = [];
+        
+        // Element Validation
+        const supplierEl = document.getElementById('purchase-supplier');
+        if (!supplierEl) throw new Error('Supplier input missing');
+        supplierEl.value = '';
+
+        const dateEl = document.getElementById('purchase-date');
+        if (!dateEl) throw new Error('Date input missing');
+        dateEl.value = new Date().toISOString().split('T')[0];
+        
+        // Reset Add Item Form
+        const barcodeEl = document.getElementById('purchase-barcode');
+        if (!barcodeEl) throw new Error('Barcode input missing');
+        barcodeEl.value = '';
+
+        document.getElementById('purchase-name').value = '';
+        document.getElementById('purchase-product-id').value = '';
+        document.getElementById('purchase-is-new').value = 'true';
+        document.getElementById('purchase-category').value = '';
+        document.getElementById('purchase-type').value = 'unit';
+        document.getElementById('purchase-qty').value = '';
+        document.getElementById('purchase-cost').value = '';
+        document.getElementById('purchase-price').value = '';
+        document.getElementById('purchase-free-item').checked = false;
+        
+        const tbody = document.getElementById('purchase-items-body');
+        if (!tbody) throw new Error('Table body missing');
+        tbody.innerHTML = '';
+
+        const totalEl = document.getElementById('purchase-total');
+        if (!totalEl) throw new Error('Total element missing');
+        totalEl.textContent = '0.00';
+        
+        // Check DB
+        if (typeof DB === 'undefined' || !DB.products) {
+             console.error('DB not initialized');
+             alert('Database error. Please refresh page.');
+             return;
+        }
+
+        // Load Categories for Autocomplete
+        loadCategories();
+        
+        const modal = document.getElementById('receive-stock-modal');
+        if (!modal) throw new Error('Modal missing');
+        modal.classList.remove('hidden');
+        
+        setTimeout(() => {
+            if (barcodeEl) barcodeEl.focus();
+        }, 100);
+
+    } catch (error) {
+        console.error('Error opening modal:', error);
+        alert('Error: ' + error.message);
+    }
+}
+
+function closeReceiveStockModal() {
+    document.getElementById('receive-stock-modal').classList.add('hidden');
+}
+
+
+
+// Barcode Handler (Debounced or on Enter)
+let purchaseBarcodeTimeout;
+async function handlePurchaseBarcode(barcode) {
+    if (!barcode || barcode.length < 3) return;
+    
+    clearTimeout(purchaseBarcodeTimeout);
+    purchaseBarcodeTimeout = setTimeout(async () => {
+        const product = await DB.products.getByBarcode(barcode);
+        if (product) {
+            selectPurchaseProduct(product.id);
+        }
+    }, 400);
+}
+
+
+
+async function handlePurchaseBarcodeEnter(barcode) {
+    if (!barcode) return;
+    
+    const product = await DB.products.getByBarcode(barcode);
+    
+    if (product) {
+        // Found: Populate and set Update Mode
+        selectPurchaseProduct(product.id);
+    } else {
+        // Not Found: New Mode
+        // Don't clear barcode, let user fill the rest
+        document.getElementById('purchase-product-id').value = '';
+        document.getElementById('purchase-is-new').value = 'true';
+        document.getElementById('purchase-name').focus();
+    }
+}
+
+async function searchPurchaseProducts(query) {
+    // If user types, we reset to "New" mode unless they pick a result
+    document.getElementById('purchase-product-id').value = '';
+    document.getElementById('purchase-is-new').value = 'true';
+    
+    const resultsContainer = document.getElementById('purchase-search-results');
+    if (!query || query.length < 2) {
+        resultsContainer.innerHTML = '';
+        resultsContainer.classList.add('hidden');
         return;
     }
     
-    tbody.innerHTML = sales.reverse().map(sale => {
-        const date = new Date(sale.date);
-        const dateStr = date.toLocaleDateString('en-GB');
-        const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const results = await DB.products.search(query);
+    
+    if (results.length === 0) {
+       resultsContainer.innerHTML = '<div class="p-3 text-sm text-gray-500">No product found</div>';
+    } else {
+        resultsContainer.innerHTML = results.slice(0, 10).map(p => `
+            <div class="p-3 hover:bg-gray-100 cursor-pointer border-b" onclick="selectPurchaseProduct(${p.id})">
+                <div class="font-bold text-gray-800">${p.name}</div>
+                <div class="text-xs text-gray-500">${p.barcode} | Stock: ${p.stock}</div>
+            </div>
+        `).join('');
+    }
+    resultsContainer.classList.remove('hidden');
+}
+
+async function selectPurchaseProduct(productId) {
+    const product = await DB.products.getById(productId);
+    if (!product) return;
+    
+    document.getElementById('purchase-product-id').value = product.id;
+    document.getElementById('purchase-is-new').value = 'false';
+    
+    document.getElementById('purchase-barcode').value = product.barcode;
+    document.getElementById('purchase-name').value = product.name;
+    document.getElementById('purchase-category').value = product.category;
+    document.getElementById('purchase-type').value = product.type;
+    document.getElementById('purchase-cost').value = product.buyingPrice || '';
+    document.getElementById('purchase-price').value = product.price || '';
+    
+    document.getElementById('purchase-search-results').classList.add('hidden');
+    document.getElementById('purchase-qty').focus();
+}
+
+async function addPurchaseItem() {
+    const idVal = document.getElementById('purchase-product-id').value;
+    const productId = idVal ? parseInt(idVal) : null;
+    const isNew = !productId;
+    
+    const barcode = document.getElementById('purchase-barcode').value;
+    const name = document.getElementById('purchase-name').value;
+    const category = document.getElementById('purchase-category').value;
+    const type = document.getElementById('purchase-type').value;
+    const qty = parseFloat(document.getElementById('purchase-qty').value);
+    const costInput = parseFloat(document.getElementById('purchase-cost').value);
+    const priceInput = parseFloat(document.getElementById('purchase-price').value);
+    const isFree = document.getElementById('purchase-free-item').checked;
+    
+    // Validation
+    if (!name || isNaN(qty) || isNaN(priceInput)) {
+        alert('Please fill Name, Selling Price and Quantity');
+        return;
+    }
+    
+    if (!isFree && isNaN(costInput)) {
+        alert('Please enter Cost (Buying Price)');
+        return;
+    }
+    
+    if (isNew) {
+        if (!barcode || !category) {
+            alert('New Products require Barcode and Category');
+            return;
+        }
+        // Duplicate Barcode/Price Check
+        const existing = await DB.products.getByBarcodeAndPrice(barcode, priceInput);
+        if (existing) {
+            alert(`Barcode '${barcode}' with Price '${priceInput.toFixed(2)}' already exists for '${existing.name}'.\nPlease scan it as an existing product or use a different price/barcode.`);
+            return;
+        }
+    }
+    
+    const cost = isFree ? 0 : costInput;
+    
+    purchaseCart.push({
+        productId,
+        isNew,
+        barcode,
+        name,
+        category,
+        type,
+        quantity: qty,
+        buyingPrice: cost,
+        sellingPrice: priceInput,
+        isFree,
+        total: cost * qty
+    });
+    
+    updatePurchaseTable();
+    
+    // Clear Form for next item
+    document.getElementById('purchase-barcode').value = '';
+    document.getElementById('purchase-name').value = '';
+    document.getElementById('purchase-product-id').value = '';
+    document.getElementById('purchase-is-new').value = 'true';
+    document.getElementById('purchase-category').value = '';
+    document.getElementById('purchase-qty').value = '';
+    document.getElementById('purchase-cost').value = '';
+    document.getElementById('purchase-price').value = '';
+    document.getElementById('purchase-free-item').checked = false;
+    document.getElementById('purchase-barcode').focus();
+}
+
+function updatePurchaseTable() {
+    const tbody = document.getElementById('purchase-items-body');
+    const totalEl = document.getElementById('purchase-total');
+    
+    if (purchaseCart.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-gray-400">No items added</td></tr>';
+        totalEl.textContent = '0.00';
+        return;
+    }
+    
+    tbody.innerHTML = purchaseCart.map((item, index) => `
+        <tr>
+            <td class="px-4 py-2 text-sm">
+                <div class="font-bold text-gray-800">${item.name}</div>
+                <div class="text-xs text-gray-500">${item.barcode} ${item.isNew ? '<span class="text-green-600 font-bold">(NEW)</span>' : ''}</div>
+            </td>
+            <td class="px-4 py-2 text-sm text-right font-mono">${item.sellingPrice.toFixed(2)}</td>
+            <td class="px-4 py-2 text-sm text-right">${item.quantity}</td>
+            <td class="px-4 py-2 text-sm text-right text-gray-600">${item.buyingPrice.toFixed(2)}</td>
+            <td class="px-4 py-2 text-sm text-right font-bold">${item.total.toFixed(2)}</td>
+            <td class="px-4 py-2 text-center">
+                <button onclick="removePurchaseItem(${index})" class="text-red-500 hover:text-red-700"><i class="ri-delete-bin-line"></i></button>
+            </td>
+        </tr>
+    `).join('');
+    
+    const total = purchaseCart.reduce((sum, item) => sum + item.total, 0);
+    totalEl.textContent = total.toFixed(2);
+}
+
+function removePurchaseItem(index) {
+    purchaseCart.splice(index, 1);
+    updatePurchaseTable();
+}
+
+async function savePurchase() {
+    if (purchaseCart.length === 0) {
+        alert('Please add items first');
+        return;
+    }
+    
+    const supplier = document.getElementById('purchase-supplier').value;
+    const date = document.getElementById('purchase-date').value;
+    
+    if (!date) {
+        alert('Please select date');
+        return;
+    }
+    
+    try {
+        const totalCost = purchaseCart.reduce((sum, item) => sum + item.total, 0);
         
-        return `
-            <tr>
-                <td class="font-semibold text-primary-600">#${sale.id}</td>
-                <td>
-                    <div>${dateStr}</div>
-                    <div class="text-xs text-gray-500">${timeStr}</div>
-                </td>
-                <td>
-                    <div class="text-sm text-gray-600">
-                        ${sale.items.length} item${sale.items.length > 1 ? 's' : ''}
-                    </div>
-                </td>
-                <td class="font-bold text-gray-900">Rs. ${sale.totalAmount.toFixed(2)}</td>
-                <td>
-                    <button onclick="viewSaleDetails(${sale.id})" 
-                            class="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded-lg transition-all">
-                        <i class="ri-eye-line"></i> View
-                    </button>
-                </td>
-            </tr>
-        `;
-    }).join('');
+        // 1. Process Products (Update or Create)
+        const finalItems = [];
+        
+        for (const item of purchaseCart) {
+            let pId = item.productId;
+            
+            if (item.isNew) {
+                // Create New Product
+                pId = await DB.products.add({
+                    barcode: item.barcode,
+                    name: item.name,
+                    category: item.category,
+                    type: item.type,
+                    price: item.sellingPrice,
+                    buyingPrice: item.buyingPrice,
+                    stock: item.quantity
+                });
+            } else {
+                // Update Existing Product or Create New Price Batch
+                const originalProduct = await DB.products.getById(pId);
+                
+                if (originalProduct) {
+                    if (originalProduct.price === item.sellingPrice) {
+                        // Same Price: Update stock of this specific row
+                        const updateData = {
+                            stock: originalProduct.stock + item.quantity
+                        };
+                        // Update Buying Price if not free
+                        if (!item.isFree && item.buyingPrice > 0) {
+                            updateData.buyingPrice = item.buyingPrice;
+                        }
+                        // Sync Name/Category updates if any changed in form
+                        updateData.name = item.name;
+                        updateData.category = item.category;
+                        
+                        await DB.products.update(pId, updateData);
+                    } else {
+                        // Different Price: Check if another batch with this price exists
+                        const existingBatch = await DB.products.getByBarcodeAndPrice(item.barcode, item.sellingPrice);
+                        
+                        if (existingBatch) {
+                            // Found another row with same barcode AND same NEW price: Update it
+                            const updateData = {
+                                stock: existingBatch.stock + item.quantity
+                            };
+                            if (!item.isFree && item.buyingPrice > 0) {
+                                updateData.buyingPrice = item.buyingPrice;
+                            }
+                            await DB.products.update(existingBatch.id, updateData);
+                            pId = existingBatch.id; // Update pId for the purchase record
+                        } else {
+                            // No batch with this price exists: Create a NEW batch row
+                            pId = await DB.products.add({
+                                barcode: item.barcode,
+                                name: item.name,
+                                category: item.category,
+                                type: item.type,
+                                price: item.sellingPrice,
+                                buyingPrice: item.buyingPrice,
+                                stock: item.quantity
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // Prepare Item for Purchase Record
+            finalItems.push({
+                productId: pId,
+                name: item.name,
+                quantity: item.quantity,
+                cost: item.buyingPrice,
+                total: item.total
+            });
+        }
+        
+        // 2. Save Purchase Record
+        await DB.purchases.add({
+            supplier: supplier || 'Unknown',
+            date,
+            totalCost,
+            items: finalItems
+        });
+        
+        alert('Stock received successfully!');
+        closeReceiveStockModal();
+        await loadProducts();
+        await loadCategories();
+        displayInventory();
+        
+    } catch (error) {
+        console.error('Purchase error:', error);
+        alert('Error saving purchase.');
+    }
 }
 
 // View sale details
@@ -635,6 +1224,39 @@ async function viewSaleDetails(saleId) {
 }
 
 // Settings Functions
+async function loadShopSettings() {
+    try {
+        const settings = await DB.shop_settings.get();
+        if (settings) {
+            document.getElementById('shop-name').value = settings.name || '';
+            document.getElementById('shop-phone').value = settings.phone || '';
+            document.getElementById('shop-address').value = settings.address || '';
+            document.getElementById('shop-info').value = settings.info || '';
+        }
+    } catch (error) {
+        console.error('Error loading shop settings:', error);
+    }
+}
+
+async function saveShopSettings(event) {
+    event.preventDefault();
+    
+    const settings = {
+        name: document.getElementById('shop-name').value,
+        phone: document.getElementById('shop-phone').value,
+        address: document.getElementById('shop-address').value,
+        info: document.getElementById('shop-info').value
+    };
+    
+    try {
+        await DB.shop_settings.save(settings);
+        alert('Shop settings saved successfully! These details will appear on your bills.');
+    } catch (error) {
+        console.error('Error saving shop settings:', error);
+        alert('Error saving settings. Please try again.');
+    }
+}
+
 async function exportData() {
     try {
         const data = await DB.exportAll();
@@ -740,6 +1362,7 @@ document.addEventListener('keydown', (e) => {
         closeProductModal();
         closeQuantityModal();
         closeReceiptModal();
+        closeReceiveStockModal();
     }
 });
 
