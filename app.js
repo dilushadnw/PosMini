@@ -551,7 +551,7 @@ async function completeSale() {
         
     } catch (error) {
         console.error('Sale error:', error);
-        alert('Error completing sale. Please try again.');
+        alert('Error completing sale. (දෝෂයක් සිදුවිය!)');
     }
 }
 
@@ -617,10 +617,10 @@ async function showReceipt(saleId, sale) {
         ` : ''}
         
         <div class="receipt-footer">
-            Thank you for your business!<br>
-            ස්තූතියි! පිං!<br>
+            Thank you!<br>
+            ස්තූතියි!<br>
             <br>
-            Powered by Sillara-POS
+            Powered by Sillara-POS DNW
         </div>
     `;
     
@@ -1215,6 +1215,12 @@ async function selectPurchaseProduct(productId) {
     document.getElementById('purchase-type').value = product.type;
     document.getElementById('purchase-cost').value = product.buyingPrice || '';
     document.getElementById('purchase-price').value = product.price || '';
+    document.getElementById('purchase-min-stock').value = product.minStock || 5;
+
+    // Notify if current stock is low
+    if (product.stock <= (product.minStock || 5)) {
+        showNotification(`Current Stock is Low! (${product.stock} ${product.type === 'weight' ? 'kg' : 'units'} left) \n (දැනට තොග අඩුයි!)`, 'warning');
+    }
     
     document.getElementById('purchase-search-results').classList.add('hidden');
     document.getElementById('purchase-qty').focus();
@@ -1230,6 +1236,7 @@ async function addPurchaseItem() {
     const category = document.getElementById('purchase-category').value;
     const type = document.getElementById('purchase-type').value;
     const qty = parseFloat(document.getElementById('purchase-qty').value);
+    const minStock = parseFloat(document.getElementById('purchase-min-stock').value) || 5;
     const costInput = parseFloat(document.getElementById('purchase-cost').value);
     const priceInput = parseFloat(document.getElementById('purchase-price').value);
     const isFree = document.getElementById('purchase-free-item').checked;
@@ -1240,10 +1247,7 @@ async function addPurchaseItem() {
         return;
     }
     
-    if (!isFree && isNaN(costInput)) {
-        alert('Please enter Cost (Buying Price)');
-        return;
-    }
+    const cost = isFree ? 0 : (isNaN(costInput) ? 0 : costInput);
     
     if (isNew) {
         if (!barcode || !category) {
@@ -1253,12 +1257,10 @@ async function addPurchaseItem() {
         // Duplicate Barcode/Price Check
         const existing = await DB.products.getByBarcodeAndPrice(barcode, priceInput);
         if (existing) {
-            alert(`Barcode '${barcode}' with Price '${priceInput.toFixed(2)}' already exists for '${existing.name}'.\nPlease scan it as an existing product or use a different price/barcode.`);
+            alert(`Barcode already exists for another product.`);
             return;
         }
     }
-    
-    const cost = isFree ? 0 : costInput;
     
     purchaseCart.push({
         productId,
@@ -1268,6 +1270,7 @@ async function addPurchaseItem() {
         category,
         type,
         quantity: qty,
+        minStock,
         buyingPrice: cost,
         sellingPrice: priceInput,
         isFree,
@@ -1283,6 +1286,7 @@ async function addPurchaseItem() {
     document.getElementById('purchase-is-new').value = 'true';
     document.getElementById('purchase-category').value = '';
     document.getElementById('purchase-qty').value = '';
+    document.getElementById('purchase-min-stock').value = '';
     document.getElementById('purchase-cost').value = '';
     document.getElementById('purchase-price').value = '';
     document.getElementById('purchase-free-item').checked = false;
@@ -1356,7 +1360,8 @@ async function savePurchase() {
                     type: item.type,
                     price: item.sellingPrice,
                     buyingPrice: item.buyingPrice,
-                    stock: item.quantity
+                    stock: item.quantity,
+                    minStock: item.minStock
                 });
             } else {
                 // Update Existing Product or Create New Price Batch
@@ -1372,9 +1377,10 @@ async function savePurchase() {
                         if (!item.isFree && item.buyingPrice > 0) {
                             updateData.buyingPrice = item.buyingPrice;
                         }
-                        // Sync Name/Category updates if any changed in form
+                        // Sync Name/Category/MinStock updates if any changed in form
                         updateData.name = item.name;
                         updateData.category = item.category;
+                        updateData.minStock = item.minStock;
                         
                         await DB.products.update(pId, updateData);
                     } else {
@@ -1400,7 +1406,8 @@ async function savePurchase() {
                                 type: item.type,
                                 price: item.sellingPrice,
                                 buyingPrice: item.buyingPrice,
-                                stock: item.quantity
+                                stock: item.quantity,
+                                minStock: item.minStock
                             });
                         }
                     }
