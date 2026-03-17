@@ -781,7 +781,7 @@ async function deleteProduct(productId) {
 }
 
 // Reports Functions
-function setReportRange(range) {
+async function setReportRange(range) {
     const fromDateEl = document.getElementById('report-from-date');
     const toDateEl = document.getElementById('report-to-date');
     const now = new Date();
@@ -790,7 +790,27 @@ function setReportRange(range) {
     let from = today;
     let to = today;
     
-    if (range === 'yesterday') {
+    if (range === 'all') {
+        const [allSales, allPurchases, allExpenses] = await Promise.all([
+            DB.sales.getAll(),
+            DB.purchases.getAll(),
+            DB.expenses.getAll()
+        ]);
+
+        const allDates = [
+            ...allSales.map(s => s.date),
+            ...allPurchases.map(p => p.date),
+            ...allExpenses.map(e => e.date)
+        ]
+            .filter(Boolean)
+            .map(d => new Date(d))
+            .filter(d => !isNaN(d.getTime()));
+
+        if (allDates.length > 0) {
+            const earliestDate = new Date(Math.min(...allDates.map(d => d.getTime())));
+            from = earliestDate.toISOString().split('T')[0];
+        }
+    } else if (range === 'yesterday') {
         const yesterday = new Date();
         yesterday.setDate(now.getDate() - 1);
         from = yesterday.toISOString().split('T')[0];
@@ -1029,24 +1049,120 @@ async function exportPurchasesCSV() {
 }
 
 async function exportStockCSV() {
+    const fromDate = document.getElementById('report-from-date')?.value;
+    const toDate = document.getElementById('report-to-date')?.value;
+
     const products = await DB.products.getAll();
-    
+
     if (products.length === 0) {
         alert('No products in stock to export');
         return;
     }
-    
+
+    // If a date range is selected, export stock movement summary for that range.
+    if (fromDate && toDate) {
+        const sales = await DB.sales.getByDateRange(fromDate, toDate);
+        const purchases = await DB.purchases.getByDateRange(fromDate, toDate);
+
+        const rowsMap = new Map();
+
+        const makeKey = (item) => {
+            if (item.productId) return `pid:${item.productId}`;
+            if (item.barcode) return `barcode:${item.barcode}`;
+            return `name:${item.name || ''}`;
+        };
+
+        const ensureRow = (key, defaults = {}) => {
+            if (!rowsMap.has(key)) {
+                rowsMap.set(key, {
+                    barcode: defaults.barcode || '',
+                    name: defaults.name || '',
+                    currentStock: defaults.currentStock || 0,
+                    buyingPrice: defaults.buyingPrice || 0,
+                    sellingPrice: defaults.sellingPrice || 0,
+                    purchasedQty: 0,
+                    soldQty: 0
+                });
+            }
+            return rowsMap.get(key);
+        };
+
+        // Seed with current products so current stock is always accurate in export.
+        products.forEach((p) => {
+            const key = `pid:${p.id}`;
+            ensureRow(key, {
+                barcode: p.barcode || '',
+                name: p.name || '',
+                currentStock: p.stock || 0,
+                buyingPrice: p.buyingPrice || 0,
+                sellingPrice: p.price || 0
+            });
+        });
+
+        purchases.forEach((purchase) => {
+            (purchase.items || []).forEach((item) => {
+                const key = makeKey(item);
+                const row = ensureRow(key, {
+                    barcode: item.barcode || '',
+                    name: item.name || '',
+                    buyingPrice: item.buyingPrice || item.cost || 0,
+                    sellingPrice: item.sellingPrice || 0
+                });
+                row.purchasedQty += Number(item.quantity) || 0;
+                if (!row.barcode && item.barcode) row.barcode = item.barcode;
+                if (!row.name && item.name) row.name = item.name;
+                if (!row.buyingPrice) row.buyingPrice = item.buyingPrice || item.cost || 0;
+                if (!row.sellingPrice) row.sellingPrice = item.sellingPrice || 0;
+            });
+        });
+
+        sales.forEach((sale) => {
+            (sale.items || []).forEach((item) => {
+                const key = makeKey(item);
+                const row = ensureRow(key, {
+                    barcode: item.barcode || '',
+                    name: item.name || '',
+                    buyingPrice: item.buyingPrice || 0,
+                    sellingPrice: item.price || 0
+                });
+                row.soldQty += Number(item.quantity) || 0;
+                if (!row.barcode && item.barcode) row.barcode = item.barcode;
+                if (!row.name && item.name) row.name = item.name;
+                if (!row.buyingPrice) row.buyingPrice = item.buyingPrice || 0;
+                if (!row.sellingPrice) row.sellingPrice = item.price || 0;
+            });
+        });
+
+        const rows = Array.from(rowsMap.values()).filter((r) => r.purchasedQty > 0 || r.soldQty > 0);
+
+        if (rows.length === 0) {
+            alert('No stock movement found for the selected period');
+            return;
+        }
+
+        let csv = "Barcode,Item Name,Current Stock Qty,Purchased Qty (Range),Sold Qty (Range),Net Change (Range),Buying Price,Selling Price\n";
+
+        rows.forEach((r) => {
+            const netChange = r.purchasedQty - r.soldQty;
+            csv += `"${r.barcode}","${r.name}",${r.currentStock},${r.purchasedQty},${r.soldQty},${netChange},${(r.buyingPrice || 0).toFixed(2)},${(r.sellingPrice || 0).toFixed(2)}\n`;
+        });
+
+        downloadCSV(csv, `Stock_Report_${fromDate}_to_${toDate}.csv`);
+        return;
+    }
+
+    // Fallback: export current stock snapshot when no date range is selected.
     let csv = "Barcode,Item Name,Stock Qty,Buying Price,Selling Price,Total Value (Cost)\n";
-    
+
     products.forEach(p => {
         const bp = p.buyingPrice || 0;
         const sp = p.price || 0;
         const qty = p.stock || 0;
         const totalValue = bp * qty;
-        
+
         csv += `"${p.barcode || ''}","${p.name}",${qty},${bp.toFixed(2)},${sp.toFixed(2)},${totalValue.toFixed(2)}\n`;
     });
-    
+
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
     downloadCSV(csv, `Current_Stock_Report_${dateStr}.csv`);

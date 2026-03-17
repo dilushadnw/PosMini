@@ -285,6 +285,14 @@ const DB = {
   },
 
   async loadSampleData() {
+    await db.transaction("rw", db.products, db.sales, db.purchases, db.expenses, db.categories, async () => {
+      await db.products.clear();
+      await db.sales.clear();
+      await db.purchases.clear();
+      await db.expenses.clear();
+      await db.categories.clear();
+    });
+
     const sampleCategories = [
       { name: "Grocery" },
       { name: "Vegetables" },
@@ -295,221 +303,152 @@ const DB = {
     await db.categories.bulkAdd(sampleCategories);
 
     const sampleProducts = [
-      // Grocery Items
       {
+        barcode: "100001",
         name: "Rice - සුදු හාල්",
         category: "Grocery",
         type: "weight",
-        price: 180, // per kg
-        stock: 50,
+        price: 240,
+        buyingPrice: 205,
+        stock: 38,
         minStock: 10,
       },
       {
+        barcode: "100002",
         name: "Sugar - සීනි",
         category: "Grocery",
         type: "weight",
-        price: 200, // per kg
-        stock: 25,
+        price: 265,
+        buyingPrice: 225,
+        stock: 22,
         minStock: 5,
       },
       {
+        barcode: "100003",
         name: "Dhal - පරිප්පු",
         category: "Grocery",
         type: "weight",
-        price: 220, // per kg
-        stock: 20,
+        price: 310,
+        buyingPrice: 268,
+        stock: 17,
         minStock: 5,
       },
       {
-        name: "Red Onions - රතු ළූණු",
-        category: "Vegetables",
-        type: "weight",
-        price: 300, // per kg
-        stock: 15,
-        minStock: 3,
-      },
-      {
-        name: "Potatoes - අල",
-        category: "Vegetables",
-        type: "weight",
-        price: 150, // per kg
-        stock: 30,
-        minStock: 5,
-      },
-
-      // Biscuits
-      {
-        name: "Maliban Cream Cracker",
-        category: "Biscuits",
-        type: "unit",
-        price: 180,
-        stock: 50,
-        minStock: 10,
-      },
-      {
-        name: "Munchee Super Cream",
-        category: "Biscuits",
-        type: "unit",
-        price: 200,
-        stock: 45,
-        minStock: 10,
-      },
-      {
-        name: "Maliban Chocolate Puff",
-        category: "Biscuits",
-        type: "unit",
-        price: 220,
-        stock: 40,
-        minStock: 10,
-      },
-      {
-        name: "Munchee Lemon Puff",
-        category: "Biscuits",
-        type: "unit",
-        price: 210,
-        stock: 35,
-        minStock: 10,
-      },
-
-      // Household Items
-      {
-        name: "Sunlight Soap",
-        category: "Household",
-        type: "unit",
-        price: 85,
-        stock: 60,
-        minStock: 15,
-      },
-      {
-        name: "Baby Soap",
-        category: "Household",
-        type: "unit",
-        price: 95,
-        stock: 40,
-        minStock: 10,
-      },
-      {
-        name: "Plastic Basin - බේසම",
-        category: "Household",
-        type: "unit",
-        price: 350,
-        stock: 20,
-        minStock: 5,
-      },
-      {
-        name: "Coconut Broom - කොකු මුට්ටි",
-        category: "Household",
-        type: "unit",
-        price: 180,
-        stock: 15,
-        minStock: 5,
-      },
-
-      // More Vegetables
-      {
+        barcode: "200001",
         name: "Tomatoes - තක්කාලි",
         category: "Vegetables",
         type: "weight",
-        price: 280,
-        stock: 12,
+        price: 260,
+        buyingPrice: 210,
+        stock: 11,
         minStock: 3,
       },
       {
-        name: "Carrots - කැරට්",
-        category: "Vegetables",
-        type: "weight",
-        price: 200,
-        stock: 10,
-        minStock: 3,
+        barcode: "300001",
+        name: "Maliban Cream Cracker",
+        category: "Biscuits",
+        type: "unit",
+        price: 230,
+        buyingPrice: 188,
+        stock: 44,
+        minStock: 10,
       },
       {
-        name: "Green Chilies - මිරිස්",
-        category: "Vegetables",
-        type: "weight",
-        price: 350,
-        stock: 8,
-        minStock: 2,
+        barcode: "300002",
+        name: "Munchee Lemon Puff",
+        category: "Biscuits",
+        type: "unit",
+        price: 250,
+        buyingPrice: 205,
+        stock: 36,
+        minStock: 10,
       },
       {
-        name: "Cabbage - ගෝවා",
-        category: "Vegetables",
+        barcode: "400001",
+        name: "Sunlight Soap",
+        category: "Household",
         type: "unit",
         price: 120,
-        stock: 20,
-        minStock: 5,
-      },
-
-      // More Grocery
-      {
-        name: "Tea Leaves - තේ කොළ",
-        category: "Grocery",
-        type: "weight",
-        price: 800, // per kg
-        stock: 5,
-        minStock: 2,
+        buyingPrice: 90,
+        stock: 58,
+        minStock: 15,
       },
       {
-        name: "Salt - ලුණු",
-        category: "Grocery",
-        type: "weight",
-        price: 60, // per kg
-        stock: 30,
-        minStock: 5,
-      },
-      {
-        name: "Milk Powder - කිරිපිටි",
-        category: "Grocery",
+        barcode: "400002",
+        name: "Plastic Basin - බේසම",
+        category: "Household",
         type: "unit",
-        price: 950,
-        stock: 25,
+        price: 480,
+        buyingPrice: 390,
+        stock: 16,
         minStock: 5,
       },
     ];
 
     await db.products.bulkAdd(sampleProducts);
 
-    // Add some sample sales
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+    const makeDate = (daysAgo, hour) => {
+      const d = new Date();
+      d.setDate(d.getDate() - daysAgo);
+      d.setHours(hour, 15, 0, 0);
+      return d;
+    };
+
+    const samplePurchases = [
+      {
+        supplier: "Lanka Wholesale",
+        date: makeDate(6, 9),
+        totalCost: 15610,
+        items: [
+          { barcode: "100001", name: "Rice - සුදු හාල්", quantity: 30, type: "weight", buyingPrice: 205, sellingPrice: 240, total: 6150 },
+          { barcode: "100002", name: "Sugar - සීනි", quantity: 20, type: "weight", buyingPrice: 225, sellingPrice: 265, total: 4500 },
+          { barcode: "300001", name: "Maliban Cream Cracker", quantity: 20, type: "unit", buyingPrice: 188, sellingPrice: 230, total: 3760 },
+          { barcode: "400001", name: "Sunlight Soap", quantity: 20, type: "unit", buyingPrice: 90, sellingPrice: 120, total: 1800 },
+        ],
+      },
+      {
+        supplier: "City Distributors",
+        date: makeDate(2, 11),
+        totalCost: 9830,
+        items: [
+          { barcode: "100003", name: "Dhal - පරිප්පු", quantity: 15, type: "weight", buyingPrice: 268, sellingPrice: 310, total: 4020 },
+          { barcode: "200001", name: "Tomatoes - තක්කාලි", quantity: 12, type: "weight", buyingPrice: 210, sellingPrice: 260, total: 2520 },
+          { barcode: "300002", name: "Munchee Lemon Puff", quantity: 18, type: "unit", buyingPrice: 205, sellingPrice: 250, total: 3690 },
+        ],
+      },
+    ];
+
+    await db.purchases.bulkAdd(samplePurchases);
 
     const sampleSales = [
       {
-        date: today,
-        totalAmount: 1250.5,
+        date: makeDate(5, 13),
+        totalAmount: 1690,
         items: [
-          { name: "Rice - සුදු හාල්", quantity: 5, price: 180, total: 900 },
-          { name: "Sugar - සීනි", quantity: 1.5, price: 200, total: 300 },
-          { name: "Sunlight Soap", quantity: 1, price: 85, total: 85 },
+          { barcode: "100001", name: "Rice - සුදු හාල්", quantity: 3, price: 240, buyingPrice: 205, total: 720 },
+          { barcode: "300001", name: "Maliban Cream Cracker", quantity: 2, price: 230, buyingPrice: 188, total: 460 },
+          { barcode: "400001", name: "Sunlight Soap", quantity: 3, price: 120, buyingPrice: 90, total: 360 },
+          { barcode: "200001", name: "Tomatoes - තක්කාලි", quantity: 0.5, price: 260, buyingPrice: 210, total: 130 },
         ],
       },
       {
-        date: today,
-        totalAmount: 875,
+        date: makeDate(3, 16),
+        totalAmount: 1995,
         items: [
-          {
-            name: "Maliban Cream Cracker",
-            quantity: 3,
-            price: 180,
-            total: 540,
-          },
-          { name: "Baby Soap", quantity: 2, price: 95, total: 190 },
-          { name: "Salt - ලුණු", quantity: 2, price: 60, total: 120 },
+          { barcode: "100002", name: "Sugar - සීනි", quantity: 2, price: 265, buyingPrice: 225, total: 530 },
+          { barcode: "100003", name: "Dhal - පරිප්පු", quantity: 1.5, price: 310, buyingPrice: 268, total: 465 },
+          { barcode: "300002", name: "Munchee Lemon Puff", quantity: 3, price: 250, buyingPrice: 205, total: 750 },
+          { barcode: "400001", name: "Sunlight Soap", quantity: 2, price: 120, buyingPrice: 90, total: 240 },
         ],
       },
       {
-        date: yesterday,
-        totalAmount: 1560,
+        date: makeDate(1, 19),
+        totalAmount: 2159,
         items: [
-          { name: "Rice - සුදු හාල්", quantity: 3, price: 180, total: 540 },
-          { name: "Dhal - පරිප්පු", quantity: 2, price: 220, total: 440 },
-          { name: "Potatoes - අල", quantity: 2, price: 150, total: 300 },
-          {
-            name: "Red Onions - රතු ළූණු",
-            quantity: 1,
-            price: 300,
-            total: 300,
-          },
+          { barcode: "100001", name: "Rice - සුදු හාල්", quantity: 2.5, price: 240, buyingPrice: 205, total: 600 },
+          { barcode: "300001", name: "Maliban Cream Cracker", quantity: 4, price: 230, buyingPrice: 188, total: 920 },
+          { barcode: "400002", name: "Plastic Basin - බේසම", quantity: 1, price: 480, buyingPrice: 390, total: 480 },
+          { barcode: "100002", name: "Sugar - සීනි", quantity: 0.6, price: 265, buyingPrice: 225, total: 159 },
         ],
       },
     ];
