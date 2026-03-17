@@ -959,7 +959,7 @@ async function exportSalesCSV() {
         return;
     }
     
-    let csv = "Date,Bill No,Barcode,Item Name,Quantity,Sell Price,Total\n";
+    let csv = "Date,Bill No,Barcode,Item Name,Quantity,Buying Price,Sell Price,Total\n";
     
     for (const sale of sales) {
         const d = new Date(sale.date);
@@ -967,12 +967,18 @@ async function exportSalesCSV() {
         
         for (const item of sale.items) {
             let barcode = item.barcode;
-            // Fallback for old data without barcode stored in sale record
-            if (!barcode && item.productId) {
+            let buyingPrice = item.buyingPrice || 0;
+
+            // Fallback for old data without barcode/buying price stored in sale record
+            if ((!barcode || !buyingPrice) && item.productId) {
                 const p = await DB.products.getById(item.productId);
-                if (p) barcode = p.barcode;
+                if (p) {
+                    if (!barcode) barcode = p.barcode;
+                    if (!buyingPrice) buyingPrice = p.buyingPrice || 0;
+                }
             }
-            csv += `${dateStr},${sale.id},"${barcode || ''}","${item.name}",${item.quantity},${item.price.toFixed(2)},${item.total.toFixed(2)}\n`;
+
+            csv += `${dateStr},${sale.id},"${barcode || ''}","${item.name}",${item.quantity},${buyingPrice.toFixed(2)},${item.price.toFixed(2)},${item.total.toFixed(2)}\n`;
         }
     }
     
@@ -995,7 +1001,7 @@ async function exportPurchasesCSV() {
         return;
     }
     
-    let csv = "Date,Item Name,Barcode,Quantity,Buy Price,Total Cost\n";
+    let csv = "Date,Item Name,Barcode,Quantity,Buy Price,Sell Price,Total Cost\n";
     
     for (const p of purchases) {
         const d = new Date(p.date);
@@ -1003,13 +1009,19 @@ async function exportPurchasesCSV() {
         
         for (const item of p.items) {
             let barcode = item.barcode;
-            // Fallback for old data
-            if (!barcode && item.productId) {
-                const prod = await DB.products.getById(item.productId);
-                if (prod) barcode = prod.barcode;
-            }
             const bp = item.buyingPrice || item.cost || 0;
-            csv += `${dateStr},"${item.name}","${barcode || ''}",${item.quantity},${bp.toFixed(2)},${(item.total || (bp * item.quantity)).toFixed(2)}\n`;
+            let sp = item.sellingPrice || 0;
+
+            // Fallback for old data
+            if ((!barcode || !sp) && item.productId) {
+                const prod = await DB.products.getById(item.productId);
+                if (prod) {
+                    if (!barcode) barcode = prod.barcode;
+                    if (!sp) sp = prod.price || 0;
+                }
+            }
+
+            csv += `${dateStr},"${item.name}","${barcode || ''}",${item.quantity},${bp.toFixed(2)},${sp.toFixed(2)},${(item.total || (bp * item.quantity)).toFixed(2)}\n`;
         }
     }
     
