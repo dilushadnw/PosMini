@@ -1071,196 +1071,106 @@ async function exportPurchasesCSV() {
 }
 
 async function exportStockCSV() {
-    const fromDate = document.getElementById('report-from-date')?.value;
-    const toDate = document.getElementById('report-to-date')?.value;
+    const toDateInput = document.getElementById('report-to-date')?.value;
+    const todayKey = new Date().toISOString().split('T')[0];
+    const selectedDate = toDateInput || todayKey;
+
+    const selectedDateStart = new Date(selectedDate);
+    selectedDateStart.setHours(0, 0, 0, 0);
+    if (isNaN(selectedDateStart.getTime())) {
+        alert('Please select a valid date');
+        return;
+    }
+
+    const cutoffDateTime = selectedDate === todayKey
+        ? new Date()
+        : new Date(new Date(selectedDate).setHours(23, 59, 59, 999));
+
     const formatDate = (value) => {
-        if (!value) return '';
         const d = new Date(value);
         if (isNaN(d.getTime())) return '';
         return d.toLocaleDateString('en-GB');
     };
-    const getDateKey = (value) => {
-        if (!value) return '';
-        const d = new Date(value);
-        if (isNaN(d.getTime())) return '';
-        return d.toISOString().split('T')[0];
-    };
-    const addQtyByDate = (mapObj, dateKey, qty) => {
-        if (!dateKey) return;
-        mapObj[dateKey] = (mapObj[dateKey] || 0) + (Number(qty) || 0);
-    };
-    const buildDateBreakdown = (mapObj) => {
-        const keys = Object.keys(mapObj || {});
-        if (keys.length === 0) return '';
-        return keys
-            .sort()
-            .map((k) => `${formatDate(k)}:${mapObj[k]}`)
-            .join(' | ');
-    };
 
     const products = await DB.products.getAll();
-
     if (products.length === 0) {
         alert('No products in stock to export');
         return;
     }
 
-    // If a date range is selected, export stock movement summary for that range.
-    if (fromDate && toDate) {
-        const sales = await DB.sales.getByDateRange(fromDate, toDate);
-        const purchases = await DB.purchases.getByDateRange(fromDate, toDate);
+    const purchases = await DB.purchases.getAll();
+    const sales = await DB.sales.getAll();
 
-        const rowsMap = new Map();
+    const byPid = new Map(products.map(p => [String(p.id), p]));
+    const byBarcode = new Map(products.map(p => [p.barcode || '', p]));
+    const byName = new Map(products.map(p => [p.name || '', p]));
 
-        const makeKey = (item) => {
-            if (item.productId) return `pid:${item.productId}`;
-            if (item.barcode) return `barcode:${item.barcode}`;
-            return `name:${item.name || ''}`;
-        };
-
-        const ensureRow = (key, defaults = {}) => {
-            if (!rowsMap.has(key)) {
-                rowsMap.set(key, {
-                    barcode: defaults.barcode || '',
-                    name: defaults.name || '',
-                    category: defaults.category || '',
-                    currentStock: defaults.currentStock || 0,
-                    buyingPrice: defaults.buyingPrice || 0,
-                    sellingPrice: defaults.sellingPrice || 0,
-                    purchasedByDate: {},
-                    soldByDate: {},
-                    purchasedQty: 0,
-                    soldQty: 0
-                });
-            }
-            return rowsMap.get(key);
-        };
-
-        // Seed with current products so current stock is always accurate in export.
-        products.forEach((p) => {
-            const key = `pid:${p.id}`;
-            ensureRow(key, {
-                barcode: p.barcode || '',
-                name: p.name || '',
-                category: p.category || '',
-                currentStock: p.stock || 0,
-                buyingPrice: p.buyingPrice || 0,
-                sellingPrice: p.price || 0
-            });
-        });
-
-        purchases.forEach((purchase) => {
-            (purchase.items || []).forEach((item) => {
-                const key = makeKey(item);
-                const row = ensureRow(key, {
-                    barcode: item.barcode || '',
-                    name: item.name || '',
-                    category: item.category || '',
-                    buyingPrice: item.buyingPrice || item.cost || 0,
-                    sellingPrice: item.sellingPrice || 0
-                });
-                const qty = Number(item.quantity) || 0;
-                row.purchasedQty += qty;
-                addQtyByDate(row.purchasedByDate, getDateKey(purchase.date), qty);
-                if (!row.barcode && item.barcode) row.barcode = item.barcode;
-                if (!row.name && item.name) row.name = item.name;
-                if (!row.category && item.category) row.category = item.category;
-                if (!row.buyingPrice) row.buyingPrice = item.buyingPrice || item.cost || 0;
-                if (!row.sellingPrice) row.sellingPrice = item.sellingPrice || 0;
-            });
-        });
-
-        sales.forEach((sale) => {
-            (sale.items || []).forEach((item) => {
-                const key = makeKey(item);
-                const row = ensureRow(key, {
-                    barcode: item.barcode || '',
-                    name: item.name || '',
-                    category: item.category || '',
-                    buyingPrice: item.buyingPrice || 0,
-                    sellingPrice: item.price || 0
-                });
-                const qty = Number(item.quantity) || 0;
-                row.soldQty += qty;
-                addQtyByDate(row.soldByDate, getDateKey(sale.date), qty);
-                if (!row.barcode && item.barcode) row.barcode = item.barcode;
-                if (!row.name && item.name) row.name = item.name;
-                if (!row.category && item.category) row.category = item.category;
-                if (!row.buyingPrice) row.buyingPrice = item.buyingPrice || 0;
-                if (!row.sellingPrice) row.sellingPrice = item.price || 0;
-            });
-        });
-
-        const rows = Array.from(rowsMap.values()).filter((r) => r.purchasedQty > 0 || r.soldQty > 0);
-
-        if (rows.length === 0) {
-            alert('No stock movement found for the selected period');
-            return;
-        }
-
-        let csv = "Barcode,Item Name,Category,Current Stock Qty,Purchased Qty (Range),Sold Qty (Range),Net Change (Range),Buying Price,Selling Price,Purchased By Date,Sold By Date\n";
-
-        rows.forEach((r) => {
-            const netChange = r.purchasedQty - r.soldQty;
-            const purchasedDetails = buildDateBreakdown(r.purchasedByDate);
-            const soldDetails = buildDateBreakdown(r.soldByDate);
-            csv += `"${r.barcode}","${r.name}","${r.category || ''}",${r.currentStock},${r.purchasedQty},${r.soldQty},${netChange},${(r.buyingPrice || 0).toFixed(2)},${(r.sellingPrice || 0).toFixed(2)},"${purchasedDetails}","${soldDetails}"\n`;
-        });
-
-        downloadCSV(csv, `Stock_Report_${fromDate}_to_${toDate}.csv`);
-        return;
-    }
-
-    // Fallback: export current stock snapshot when no date range is selected.
-    const allPurchases = await DB.purchases.getAll();
-    const allSales = await DB.sales.getAll();
-    const todayKey = getDateKey(new Date());
-    const stockInTodayMap = new Map();
-    const stockOutTodayMap = new Map();
-
-    const addToMapByKeys = (mapRef, item, qty) => {
-        const keys = [];
-        if (item.productId) keys.push(`pid:${item.productId}`);
-        if (item.barcode) keys.push(`barcode:${item.barcode}`);
-        if (item.name) keys.push(`name:${item.name}`);
-        keys.forEach((k) => {
-            mapRef.set(k, (mapRef.get(k) || 0) + (Number(qty) || 0));
-        });
+    const resolveProduct = (item) => {
+        if (item.productId && byPid.has(String(item.productId))) return byPid.get(String(item.productId));
+        if (item.barcode && byBarcode.has(item.barcode)) return byBarcode.get(item.barcode);
+        if (item.name && byName.has(item.name)) return byName.get(item.name);
+        return null;
     };
 
-    allPurchases.forEach((purchase) => {
-        const purchaseDateKey = getDateKey(purchase.date);
-        if (purchaseDateKey !== todayKey) return;
+    const stockAdjustments = new Map();
+    const purchaseDateByProduct = new Map();
+
+    products.forEach((p) => {
+        stockAdjustments.set(String(p.id), 0);
+        purchaseDateByProduct.set(String(p.id), '');
+    });
+
+    purchases.forEach((purchase) => {
+        const pDate = new Date(purchase.date);
+        if (isNaN(pDate.getTime())) return;
+
         (purchase.items || []).forEach((item) => {
-            addToMapByKeys(stockInTodayMap, item, item.quantity);
+            const product = resolveProduct(item);
+            if (!product) return;
+            const key = String(product.id);
+            const qty = Number(item.quantity) || 0;
+
+            if (pDate > cutoffDateTime) {
+                stockAdjustments.set(key, (stockAdjustments.get(key) || 0) - qty);
+            } else {
+                const existing = purchaseDateByProduct.get(key);
+                if (!existing || new Date(existing) < pDate) {
+                    purchaseDateByProduct.set(key, pDate.toISOString());
+                }
+            }
         });
     });
 
-    allSales.forEach((sale) => {
-        const saleDateKey = getDateKey(sale.date);
-        if (saleDateKey !== todayKey) return;
+    sales.forEach((sale) => {
+        const sDate = new Date(sale.date);
+        if (isNaN(sDate.getTime()) || sDate <= cutoffDateTime) return;
+
         (sale.items || []).forEach((item) => {
-            addToMapByKeys(stockOutTodayMap, item, item.quantity);
+            const product = resolveProduct(item);
+            if (!product) return;
+            const key = String(product.id);
+            const qty = Number(item.quantity) || 0;
+            stockAdjustments.set(key, (stockAdjustments.get(key) || 0) + qty);
         });
     });
 
-    let csv = "Barcode,Item Name,Category,Stock Qty,Buying Price,Selling Price,Total Value (Cost),Stock In Today,Stock Out Today,Net Change Today\n";
+    let csv = "Date,Barcode,Item Name,Category,Quantity,Buying Price,Sell Price\n";
 
-    products.forEach(p => {
-        const bp = p.buyingPrice || 0;
-        const sp = p.price || 0;
-        const qty = p.stock || 0;
-        const totalValue = bp * qty;
-        const stockInToday = stockInTodayMap.get(`pid:${p.id}`) || stockInTodayMap.get(`barcode:${p.barcode || ''}`) || stockInTodayMap.get(`name:${p.name || ''}`) || 0;
-        const stockOutToday = stockOutTodayMap.get(`pid:${p.id}`) || stockOutTodayMap.get(`barcode:${p.barcode || ''}`) || stockOutTodayMap.get(`name:${p.name || ''}`) || 0;
-        const netChangeToday = stockInToday - stockOutToday;
+    products.forEach((p) => {
+        const key = String(p.id);
+        const quantityAsOfDate = (Number(p.stock) || 0) + (stockAdjustments.get(key) || 0);
+        if (quantityAsOfDate <= 0) return;
 
-        csv += `"${p.barcode || ''}","${p.name}","${p.category || ''}",${qty},${bp.toFixed(2)},${sp.toFixed(2)},${totalValue.toFixed(2)},${stockInToday},${stockOutToday},${netChangeToday}\n`;
+        const buyDateIso = purchaseDateByProduct.get(key);
+        const buyDate = buyDateIso ? formatDate(buyDateIso) : '';
+        const buyingPrice = Number(p.buyingPrice) || 0;
+        const sellPrice = Number(p.price) || 0;
+
+        csv += `"${buyDate}","${p.barcode || ''}","${p.name || ''}","${p.category || ''}",${quantityAsOfDate},${buyingPrice.toFixed(2)},${sellPrice.toFixed(2)}\n`;
     });
 
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    downloadCSV(csv, `Current_Stock_Report_${dateStr}.csv`);
+    const fileDate = cutoffDateTime.toISOString().split('T')[0];
+    downloadCSV(csv, `Stock_As_Of_${fileDate}.csv`);
 }
 
 function downloadCSV(csv, filename) {
