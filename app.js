@@ -15,6 +15,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('report-from-date').value = today;
     document.getElementById('report-to-date').value = today;
+
+    const expenseDateEl = document.getElementById('expense-date');
+    const expenseFromDateEl = document.getElementById('expense-from-date');
+    const expenseToDateEl = document.getElementById('expense-to-date');
+    if (expenseDateEl) expenseDateEl.value = today;
+    if (expenseFromDateEl) {
+        const monthStart = new Date();
+        monthStart.setDate(1);
+        expenseFromDateEl.value = monthStart.toISOString().split('T')[0];
+    }
+    if (expenseToDateEl) expenseToDateEl.value = today;
 });
 
 // Initialize application
@@ -161,10 +172,190 @@ function showPage(pageName) {
         displayInventory();
     } else if (pageName === 'reports') {
         generateReport();
+    } else if (pageName === 'expenses') {
+        loadExpensesPage();
     } else if (pageName === 'settings') {
         loadShopSettings();
         loadCategories();
     }
+}
+
+function formatDateForDisplay(dateValue) {
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('en-GB');
+}
+
+async function loadExpensesPage() {
+    const today = new Date().toISOString().split('T')[0];
+    const monthStart = new Date();
+    monthStart.setDate(1);
+
+    const expenseDateEl = document.getElementById('expense-date');
+    const fromEl = document.getElementById('expense-from-date');
+    const toEl = document.getElementById('expense-to-date');
+
+    if (expenseDateEl && !expenseDateEl.value) expenseDateEl.value = today;
+    if (fromEl && !fromEl.value) fromEl.value = monthStart.toISOString().split('T')[0];
+    if (toEl && !toEl.value) toEl.value = today;
+
+    await loadExpensesTable();
+}
+
+async function setExpenseRange(range) {
+    const fromEl = document.getElementById('expense-from-date');
+    const toEl = document.getElementById('expense-to-date');
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    let from = today;
+    let to = today;
+
+    if (range === 'all') {
+        const allExpenses = await DB.expenses.getAll();
+        const validDates = allExpenses
+            .map(e => new Date(e.date))
+            .filter(d => !isNaN(d.getTime()));
+
+        if (validDates.length > 0) {
+            const minDate = new Date(Math.min(...validDates.map(d => d.getTime())));
+            from = minDate.toISOString().split('T')[0];
+        }
+    } else if (range === 'thisMonth') {
+        from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    }
+
+    if (fromEl) fromEl.value = from;
+    if (toEl) toEl.value = to;
+    await loadExpensesTable();
+}
+
+async function saveExpense(event) {
+    event.preventDefault();
+
+    const dateInput = document.getElementById('expense-date').value;
+    const category = document.getElementById('expense-category').value;
+    const description = document.getElementById('expense-description').value.trim();
+    const amount = parseFloat(document.getElementById('expense-amount').value);
+
+    if (!dateInput || !category || !description || isNaN(amount) || amount <= 0) {
+        alert('Please fill all expense fields correctly');
+        return;
+    }
+
+    try {
+        await DB.expenses.add({
+            date: new Date(`${dateInput}T12:00:00`),
+            category,
+            description,
+            amount
+        });
+
+        document.getElementById('expense-form').reset();
+        document.getElementById('expense-date').value = new Date().toISOString().split('T')[0];
+        await loadExpensesTable();
+
+        if (document.getElementById('report-from-date') && document.getElementById('report-to-date')) {
+            await generateReport();
+        }
+
+        alert('Expense saved successfully!');
+    } catch (error) {
+        console.error('Error saving expense:', error);
+        alert('Error saving expense. Please try again.');
+    }
+}
+
+async function loadExpensesTable() {
+    const fromDate = document.getElementById('expense-from-date')?.value;
+    const toDate = document.getElementById('expense-to-date')?.value;
+
+    let expenses = [];
+    if (fromDate && toDate) {
+        expenses = await DB.expenses.getByDateRange(fromDate, toDate);
+    } else {
+        expenses = await DB.expenses.getAll();
+    }
+
+    expenses.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const tbody = document.getElementById('expense-table-body');
+    const total = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+    const totalEl = document.getElementById('expense-total');
+    const countEl = document.getElementById('expense-record-count');
+    if (totalEl) totalEl.textContent = total.toFixed(2);
+    if (countEl) countEl.textContent = expenses.length;
+
+    if (!tbody) return;
+
+    if (expenses.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-12 text-gray-400"><i class="ri-wallet-3-line text-5xl mb-3 block"></i><p class="font-sinhala">වියදම් වාර්තා නැත</p><p>No expenses found for selected period</p></td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = expenses.map(expense => `
+        <tr class="hover:bg-gray-50 transition-colors">
+            <td class="px-6 py-4 text-sm text-gray-700 whitespace-nowrap">${formatDateForDisplay(expense.date)}</td>
+            <td class="px-6 py-4 text-sm"><span class="badge badge-warning">${expense.category || 'Other'}</span></td>
+            <td class="px-6 py-4 text-sm font-medium text-gray-900">${expense.description || ''}</td>
+            <td class="px-6 py-4 text-right text-sm font-bold text-red-600">Rs. ${(Number(expense.amount) || 0).toFixed(2)}</td>
+            <td class="px-6 py-4 text-sm">
+                <button onclick="deleteExpense(${expense.id})" class="text-red-600 hover:text-red-800 p-2 hover:bg-red-50 rounded-lg transition-all">
+                    <i class="ri-delete-bin-line"></i> Delete
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function deleteExpense(expenseId) {
+    if (!confirm('Are you sure you want to delete this expense record?')) {
+        return;
+    }
+
+    try {
+        await DB.expenses.delete(expenseId);
+        await loadExpensesTable();
+
+        if (document.getElementById('report-from-date') && document.getElementById('report-to-date')) {
+            await generateReport();
+        }
+    } catch (error) {
+        console.error('Error deleting expense:', error);
+        alert('Error deleting expense. Please try again.');
+    }
+}
+
+async function exportExpensesCSV() {
+    const fromDate = document.getElementById('expense-from-date')?.value;
+    const toDate = document.getElementById('expense-to-date')?.value;
+
+    let expenses = [];
+    if (fromDate && toDate) {
+        expenses = await DB.expenses.getByDateRange(fromDate, toDate);
+    } else {
+        expenses = await DB.expenses.getAll();
+    }
+
+    expenses.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    if (expenses.length === 0) {
+        alert('No expenses found to export');
+        return;
+    }
+
+    let csv = 'Date,Category,Description,Amount\n';
+    expenses.forEach(expense => {
+        const dateStr = formatDateForDisplay(expense.date);
+        const category = (expense.category || 'Other').replaceAll('"', '""');
+        const description = (expense.description || '').replaceAll('"', '""');
+        const amount = (Number(expense.amount) || 0).toFixed(2);
+        csv += `${dateStr},"${category}","${description}",${amount}\n`;
+    });
+
+    const fromLabel = fromDate || 'all';
+    const toLabel = toDate || 'all';
+    downloadCSV(csv, `Expenses_${fromLabel}_to_${toLabel}.csv`);
 }
 
 // Toggle mobile menu
@@ -929,6 +1120,28 @@ async function generateReport() {
     document.getElementById('is-gross-profit').textContent = totalProfit.toFixed(2);
     document.getElementById('is-expenses').textContent = totalExpenses.toFixed(2);
     document.getElementById('is-net-profit').textContent = netProfit.toFixed(2);
+
+    const expenseTableBody = document.getElementById('report-expense-table-body');
+    const reportExpenseTotal = document.getElementById('report-expense-total');
+    if (reportExpenseTotal) {
+        reportExpenseTotal.textContent = totalExpenses.toFixed(2);
+    }
+
+    if (expenseTableBody) {
+        if (expenses.length === 0) {
+            expenseTableBody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-gray-400">No expense entries for selected period</td></tr>';
+        } else {
+            const sortedExpenses = [...expenses].sort((a, b) => new Date(b.date) - new Date(a.date));
+            expenseTableBody.innerHTML = sortedExpenses.map((expense) => `
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">${formatDateForDisplay(expense.date)}</td>
+                    <td class="px-6 py-4 text-sm text-gray-700">${expense.category || 'Other'}</td>
+                    <td class="px-6 py-4 text-sm font-medium text-gray-900">${expense.description || ''}</td>
+                    <td class="px-6 py-4 text-right text-sm font-bold text-red-600">Rs. ${(Number(expense.amount) || 0).toFixed(2)}</td>
+                </tr>
+            `).join('');
+        }
+    }
 
     // --- 3. PURCHASE HISTORY ---
     const purchases = await DB.purchases.getByDateRange(fromDate, toDate);
