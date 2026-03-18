@@ -183,6 +183,12 @@ const DB = {
         if (!expense.date) expense.date = new Date();
         return await db.expenses.add(expense);
       },
+      async getById(id) {
+        return await db.expenses.get(id);
+      },
+      async delete(id) {
+        return await db.expenses.delete(id);
+      },
       async getAll() {
         return await db.expenses.toArray();
       },
