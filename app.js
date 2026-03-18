@@ -50,6 +50,155 @@ async function initApp() {
     console.log('Sillara-POS Application initialized!');
 }
 
+function formatDateForDisplay(dateValue) {
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('en-GB');
+}
+
+async function updateReportCurrentStockTotal() {
+    const totalEl = document.getElementById('report-current-stock-total');
+    const costEl = document.getElementById('report-current-stock-cost-total');
+    if (!totalEl && !costEl) return;
+
+    const cutoffDateTime = getStockCutoffDateTimeFromReport();
+    if (!cutoffDateTime) {
+        if (totalEl) totalEl.textContent = '0.00';
+        if (costEl) costEl.textContent = '0.00';
+        return;
+    }
+
+    const snapshot = await buildStockSnapshot(cutoffDateTime);
+    if (totalEl) totalEl.textContent = snapshot.totalSellValue.toFixed(2);
+    if (costEl) costEl.textContent = snapshot.totalBuyValue.toFixed(2);
+}
+
+function getStockCutoffDateTimeFromReport() {
+    const toDateInput = document.getElementById('report-to-date')?.value;
+    const todayKey = new Date().toISOString().split('T')[0];
+    const selectedDate = toDateInput || todayKey;
+
+    const selectedDateStart = new Date(selectedDate);
+    selectedDateStart.setHours(0, 0, 0, 0);
+    if (isNaN(selectedDateStart.getTime())) {
+        return null;
+    }
+
+    return selectedDate === todayKey
+        ? new Date()
+        : new Date(new Date(selectedDate).setHours(23, 59, 59, 999));
+}
+
+async function buildStockSnapshot(cutoffDateTime) {
+    const products = await DB.products.getAll();
+    const purchases = await DB.purchases.getAll();
+    const sales = await DB.sales.getAll();
+    const returns = await DB.returns.getAll();
+
+    const byPid = new Map(products.map(p => [String(p.id), p]));
+    const byBarcode = new Map(products.map(p => [p.barcode || '', p]));
+    const byName = new Map(products.map(p => [p.name || '', p]));
+
+    const resolveProduct = (item) => {
+        if (item.productId && byPid.has(String(item.productId))) return byPid.get(String(item.productId));
+        if (item.barcode && byBarcode.has(item.barcode)) return byBarcode.get(item.barcode);
+        if (item.name && byName.has(item.name)) return byName.get(item.name);
+        if (item.productName && byName.has(item.productName)) return byName.get(item.productName);
+        return null;
+    };
+
+    const stockAdjustments = new Map();
+    const purchaseDateByProduct = new Map();
+
+    products.forEach((p) => {
+        stockAdjustments.set(String(p.id), 0);
+        purchaseDateByProduct.set(String(p.id), '');
+    });
+
+    purchases.forEach((purchase) => {
+        const pDate = new Date(purchase.date);
+        if (isNaN(pDate.getTime())) return;
+
+        (purchase.items || []).forEach((item) => {
+            const product = resolveProduct(item);
+            if (!product) return;
+            const key = String(product.id);
+            const qty = Number(item.quantity) || 0;
+
+            if (pDate > cutoffDateTime) {
+                stockAdjustments.set(key, (stockAdjustments.get(key) || 0) - qty);
+            } else {
+                const existing = purchaseDateByProduct.get(key);
+                if (!existing || new Date(existing) < pDate) {
+                    purchaseDateByProduct.set(key, pDate.toISOString());
+                }
+            }
+        });
+    });
+
+    sales.forEach((sale) => {
+        const sDate = new Date(sale.date);
+        if (isNaN(sDate.getTime()) || sDate <= cutoffDateTime) return;
+
+        (sale.items || []).forEach((item) => {
+            const product = resolveProduct(item);
+            if (!product) return;
+            const key = String(product.id);
+            const qty = Number(item.quantity) || 0;
+            stockAdjustments.set(key, (stockAdjustments.get(key) || 0) + qty);
+        });
+    });
+
+    returns.forEach((ret) => {
+        const rDate = new Date(ret.date);
+        if (isNaN(rDate.getTime()) || rDate <= cutoffDateTime) return;
+
+        const product = resolveProduct(ret);
+        if (!product) return;
+
+        const key = String(product.id);
+        const qty = Number(ret.quantity) || 0;
+        if (qty <= 0) return;
+
+        if (ret.type === 'customer') {
+            // Customer return after cutoff increases current stock; remove it for as-of view.
+            stockAdjustments.set(key, (stockAdjustments.get(key) || 0) - qty);
+        } else if (ret.type === 'supplier') {
+            // Supplier return after cutoff decreases current stock; add it back for as-of view.
+            stockAdjustments.set(key, (stockAdjustments.get(key) || 0) + qty);
+        }
+    });
+
+    const rows = [];
+    let totalSellValue = 0;
+    let totalBuyValue = 0;
+
+    products.forEach((p) => {
+        const key = String(p.id);
+        const quantityAsOfDate = (Number(p.stock) || 0) + (stockAdjustments.get(key) || 0);
+        if (quantityAsOfDate <= 0) return;
+
+        const buyingPrice = Number(p.buyingPrice) || 0;
+        const sellPrice = Number(p.price) || 0;
+        const buyDateIso = purchaseDateByProduct.get(key);
+
+        totalSellValue += quantityAsOfDate * sellPrice;
+        totalBuyValue += quantityAsOfDate * buyingPrice;
+
+        rows.push({
+            buyDateIso,
+            barcode: p.barcode || '',
+            name: p.name || '',
+            category: p.category || '',
+            quantity: quantityAsOfDate,
+            buyingPrice,
+            sellPrice
+        });
+    });
+
+    return { rows, totalSellValue, totalBuyValue };
+}
+
 function checkAdminPassword() {
     const password = prompt('Please enter Admin Password (සැකසුම් වෙනස් කිරීමට මුරපදය ඇතුළත් කරන්න):');
     if (password === '1234') {
@@ -185,6 +334,7 @@ function showPage(pageName) {
     } else if (pageName === 'inventory') {
         displayInventory();
     } else if (pageName === 'reports') {
+        updateReportCurrentStockTotal();
         generateReport();
     } else if (pageName === 'expenses') {
         loadExpensesPage();
@@ -194,12 +344,6 @@ function showPage(pageName) {
         loadShopSettings();
         loadCategories();
     }
-}
-
-function formatDateForDisplay(dateValue) {
-    const date = new Date(dateValue);
-    if (isNaN(date.getTime())) return '';
-    return date.toLocaleDateString('en-GB');
 }
 
 async function loadExpensesPage() {
@@ -1644,6 +1788,8 @@ async function setReportRange(range) {
 }
 
 async function generateReport() {
+    await updateReportCurrentStockTotal();
+
     const fromDate = document.getElementById('report-from-date').value;
     const toDate = document.getElementById('report-to-date').value;
     
@@ -2083,20 +2229,11 @@ async function exportPurchasesCSV() {
 }
 
 async function exportStockCSV() {
-    const toDateInput = document.getElementById('report-to-date')?.value;
-    const todayKey = new Date().toISOString().split('T')[0];
-    const selectedDate = toDateInput || todayKey;
-
-    const selectedDateStart = new Date(selectedDate);
-    selectedDateStart.setHours(0, 0, 0, 0);
-    if (isNaN(selectedDateStart.getTime())) {
+    const cutoffDateTime = getStockCutoffDateTimeFromReport();
+    if (!cutoffDateTime) {
         alert('Please select a valid date');
         return;
     }
-
-    const cutoffDateTime = selectedDate === todayKey
-        ? new Date()
-        : new Date(new Date(selectedDate).setHours(23, 59, 59, 999));
 
     const formatDate = (value) => {
         const d = new Date(value);
@@ -2104,81 +2241,17 @@ async function exportStockCSV() {
         return d.toLocaleDateString('en-GB');
     };
 
-    const products = await DB.products.getAll();
-    if (products.length === 0) {
+    const snapshot = await buildStockSnapshot(cutoffDateTime);
+    if (snapshot.rows.length === 0) {
         alert('No products in stock to export');
         return;
     }
 
-    const purchases = await DB.purchases.getAll();
-    const sales = await DB.sales.getAll();
-
-    const byPid = new Map(products.map(p => [String(p.id), p]));
-    const byBarcode = new Map(products.map(p => [p.barcode || '', p]));
-    const byName = new Map(products.map(p => [p.name || '', p]));
-
-    const resolveProduct = (item) => {
-        if (item.productId && byPid.has(String(item.productId))) return byPid.get(String(item.productId));
-        if (item.barcode && byBarcode.has(item.barcode)) return byBarcode.get(item.barcode);
-        if (item.name && byName.has(item.name)) return byName.get(item.name);
-        return null;
-    };
-
-    const stockAdjustments = new Map();
-    const purchaseDateByProduct = new Map();
-
-    products.forEach((p) => {
-        stockAdjustments.set(String(p.id), 0);
-        purchaseDateByProduct.set(String(p.id), '');
-    });
-
-    purchases.forEach((purchase) => {
-        const pDate = new Date(purchase.date);
-        if (isNaN(pDate.getTime())) return;
-
-        (purchase.items || []).forEach((item) => {
-            const product = resolveProduct(item);
-            if (!product) return;
-            const key = String(product.id);
-            const qty = Number(item.quantity) || 0;
-
-            if (pDate > cutoffDateTime) {
-                stockAdjustments.set(key, (stockAdjustments.get(key) || 0) - qty);
-            } else {
-                const existing = purchaseDateByProduct.get(key);
-                if (!existing || new Date(existing) < pDate) {
-                    purchaseDateByProduct.set(key, pDate.toISOString());
-                }
-            }
-        });
-    });
-
-    sales.forEach((sale) => {
-        const sDate = new Date(sale.date);
-        if (isNaN(sDate.getTime()) || sDate <= cutoffDateTime) return;
-
-        (sale.items || []).forEach((item) => {
-            const product = resolveProduct(item);
-            if (!product) return;
-            const key = String(product.id);
-            const qty = Number(item.quantity) || 0;
-            stockAdjustments.set(key, (stockAdjustments.get(key) || 0) + qty);
-        });
-    });
-
     let csv = "Date,Barcode,Item Name,Category,Quantity,Buying Price,Sell Price\n";
 
-    products.forEach((p) => {
-        const key = String(p.id);
-        const quantityAsOfDate = (Number(p.stock) || 0) + (stockAdjustments.get(key) || 0);
-        if (quantityAsOfDate <= 0) return;
-
-        const buyDateIso = purchaseDateByProduct.get(key);
-        const buyDate = buyDateIso ? formatDate(buyDateIso) : '';
-        const buyingPrice = Number(p.buyingPrice) || 0;
-        const sellPrice = Number(p.price) || 0;
-
-        csv += `"${buyDate}","${p.barcode || ''}","${p.name || ''}","${p.category || ''}",${quantityAsOfDate},${buyingPrice.toFixed(2)},${sellPrice.toFixed(2)}\n`;
+    snapshot.rows.forEach((row) => {
+        const buyDate = row.buyDateIso ? formatDate(row.buyDateIso) : '';
+        csv += `"${buyDate}","${row.barcode}","${row.name}","${row.category}",${row.quantity},${row.buyingPrice.toFixed(2)},${row.sellPrice.toFixed(2)}\n`;
     });
 
     const fileDate = cutoffDateTime.toISOString().split('T')[0];
