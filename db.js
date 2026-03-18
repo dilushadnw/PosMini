@@ -6,11 +6,12 @@ const db = new Dexie("SillaraDB");
 
 // Define database schema
 // Define database schema
-db.version(6).stores({
+db.version(7).stores({
   products: "++id, name, barcode, category, type, price, buyingPrice, stock, minStock",
   sales: "++id, date, totalAmount, items",
   purchases: "++id, date, supplier, totalCost, items",
   expenses: "++id, date, description, amount, category",
+  returns: "++id, type, date, barcode, productId, productName, quantity, amount",
   shop_settings: "id, name, phone, address, info",
   categories: "++id, &name" // Uniqueness constraint on category name
 });
@@ -206,6 +207,42 @@ const DB = {
       }
   },
 
+  // Returns operations
+  returns: {
+    async add(returnEntry) {
+      if (!returnEntry.date) returnEntry.date = new Date();
+      return await db.returns.add(returnEntry);
+    },
+    async getById(id) {
+      return await db.returns.get(id);
+    },
+    async update(id, changes) {
+      return await db.returns.update(id, changes);
+    },
+    async delete(id) {
+      return await db.returns.delete(id);
+    },
+    async getAll() {
+      return await db.returns.toArray();
+    },
+    async getByDateRange(fromDate, toDate) {
+      const all = await db.returns.toArray();
+      const from = new Date(fromDate);
+      from.setHours(0, 0, 0, 0);
+      const to = new Date(toDate);
+      to.setHours(23, 59, 59, 999);
+
+      return all.filter((r) => {
+        const d = new Date(r.date);
+        return d >= from && d <= to;
+      });
+    },
+    async getByTypeAndDateRange(type, fromDate, toDate) {
+      const rows = await this.getByDateRange(fromDate, toDate);
+      return rows.filter(r => r.type === type);
+    }
+  },
+
   // Shop Settings operations
   shop_settings: {
     async get() {
@@ -233,6 +270,7 @@ const DB = {
     const sales = await db.sales.toArray();
     const purchases = await db.purchases.toArray();
     const expenses = await db.expenses.toArray();
+    const returns = await db.returns.toArray();
     const categories = await db.categories.toArray();
     const shopSettings = await db.shop_settings.get(1);
 
@@ -241,10 +279,11 @@ const DB = {
       sales,
       purchases,
       expenses,
+      returns,
       categories,
       shopSettings,
       exportDate: new Date().toISOString(),
-      version: 6,
+      version: 7,
     };
   },
 
@@ -256,6 +295,7 @@ const DB = {
         db.sales,
         db.purchases,
         db.expenses,
+        db.returns,
         db.categories,
         db.shop_settings,
         async () => {
@@ -263,6 +303,7 @@ const DB = {
           await db.sales.clear();
           await db.purchases.clear();
           await db.expenses.clear();
+          await db.returns.clear();
           await db.categories.clear();
           await db.shop_settings.clear();
 
@@ -270,6 +311,7 @@ const DB = {
           if (data.sales) await db.sales.bulkAdd(data.sales);
           if (data.purchases) await db.purchases.bulkAdd(data.purchases);
           if (data.expenses) await db.expenses.bulkAdd(data.expenses);
+          if (data.returns) await db.returns.bulkAdd(data.returns);
           if (data.categories) await db.categories.bulkAdd(data.categories);
           if (data.shopSettings) await db.shop_settings.put(data.shopSettings);
         }
@@ -286,16 +328,18 @@ const DB = {
     await db.sales.clear();
     await db.purchases.clear();
     await db.expenses.clear();
+    await db.returns.clear();
     await db.categories.clear();
     // Don't clear shop settings when clearing data
   },
 
   async loadSampleData() {
-    await db.transaction("rw", db.products, db.sales, db.purchases, db.expenses, db.categories, async () => {
+    await db.transaction("rw", db.products, db.sales, db.purchases, db.expenses, db.returns, db.categories, async () => {
       await db.products.clear();
       await db.sales.clear();
       await db.purchases.clear();
       await db.expenses.clear();
+      await db.returns.clear();
       await db.categories.clear();
     });
 

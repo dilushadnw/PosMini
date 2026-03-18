@@ -124,6 +124,14 @@
               <span>Expenses</span>
             </button>
             <button
+              onclick="showPage('returns')"
+              id="nav-returns"
+              class="nav-btn"
+            >
+              <i class="ri-arrow-left-right-line"></i>
+              <span>Returns</span>
+            </button>
+            <button
               onclick="showPage('settings')"
               id="nav-settings"
               class="nav-btn"
@@ -194,6 +202,16 @@
             >
               <i class="ri-wallet-3-line"></i>
               <span>Expenses</span>
+            </button>
+            <button
+              onclick="
+                showPage('returns');
+                toggleMobileMenu();
+              "
+              class="mobile-nav-btn"
+            >
+              <i class="ri-arrow-left-right-line"></i>
+              <span>Returns</span>
             </button>
             <button
               onclick="
@@ -655,7 +673,7 @@
             class="stat-card bg-gradient-to-br from-primary-500 to-primary-700 text-white"
           >
             <div>
-              <p class="text-primary-100 text-sm font-medium">Total Sales</p>
+              <p class="text-primary-100 text-sm font-medium">Net Sales (After Returns)</p>
               <h3 class="text-3xl font-bold mt-2">
                 Rs. <span id="report-total-sales">0.00</span>
               </h3>
@@ -666,7 +684,7 @@
             class="stat-card bg-gradient-to-br from-green-500 to-green-700 text-white"
           >
             <div>
-              <p class="text-green-100 text-sm font-medium">Total Profit</p>
+              <p class="text-green-100 text-sm font-medium">Gross Profit</p>
               <h3 class="text-3xl font-bold mt-2">
                 Rs. <span id="report-total-profit">0.00</span>
               </h3>
@@ -724,6 +742,11 @@
                 <div class="flex justify-between items-center text-sm pl-4 mt-2">
                     <span class="text-gray-600">Other Expenses (වෙනත් වියදම්)</span>
                     <span class="text-red-500">(Rs. <span id="is-expenses">0.00</span>)</span>
+                </div>
+
+                <div class="flex justify-between items-center text-sm pl-4 mt-1">
+                  <span class="text-gray-600">Supplier Return Credits (සැපයුම්කරු වෙතින් ලැබුණු ආපසු මුදල්)</span>
+                  <span class="text-blue-600">+ Rs. <span id="is-supplier-returns">0.00</span></span>
                 </div>
                 
                 <div class="border-t-2 border-gray-300 my-2"></div>
@@ -840,6 +863,62 @@
               <tbody id="purchase-history-body" class="divide-y divide-gray-100">
                 <!-- Data populated via JS -->
               </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Returns Summary in Reports -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div class="stat-card bg-gradient-to-br from-amber-500 to-amber-700 text-white">
+            <div>
+              <p class="text-amber-100 text-sm font-medium">Customer Returns (Sales Reduced)</p>
+              <h3 class="text-3xl font-bold mt-2">Rs. <span id="report-customer-returns">0.00</span></h3>
+            </div>
+          </div>
+          <div class="stat-card bg-gradient-to-br from-cyan-500 to-cyan-700 text-white">
+            <div>
+              <p class="text-cyan-100 text-sm font-medium">Supplier Returns (Credits)</p>
+              <h3 class="text-3xl font-bold mt-2">Rs. <span id="report-supplier-returns">0.00</span></h3>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100 mb-6">
+          <div class="p-6">
+            <h3 class="text-xl font-bold text-gray-900">Customer Return Details</h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-gradient-to-r from-gray-50 to-gray-100">
+                <tr>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Date</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Barcode</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Item</th>
+                  <th class="px-6 py-4 text-right text-sm font-semibold text-gray-700">Qty</th>
+                  <th class="px-6 py-4 text-right text-sm font-semibold text-gray-700">Refund Amount</th>
+                </tr>
+              </thead>
+              <tbody id="report-customer-return-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100 mb-6">
+          <div class="p-6">
+            <h3 class="text-xl font-bold text-gray-900">Supplier Return Details</h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-gradient-to-r from-gray-50 to-gray-100">
+                <tr>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Date</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Barcode</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Item</th>
+                  <th class="px-6 py-4 text-right text-sm font-semibold text-gray-700">Qty</th>
+                  <th class="px-6 py-4 text-right text-sm font-semibold text-gray-700">Credit Amount</th>
+                </tr>
+              </thead>
+              <tbody id="report-supplier-return-body"></tbody>
             </table>
           </div>
         </div>
@@ -989,6 +1068,205 @@
               <tbody id="expense-table-body">
                 <!-- Expenses will be loaded here -->
               </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Returns Page -->
+      <div id="page-returns" class="page-content hidden">
+        <div class="mb-6 flex justify-between items-center">
+          <div>
+            <h2 class="text-3xl font-bold text-gray-900">Returns Management</h2>
+            <p class="text-gray-600 mt-1 font-sinhala">පාරිභෝගික සහ සැපයුම්කරු ආපසු භාර ගැනීම්</p>
+          </div>
+          <button onclick="exportReturnsCSV()" class="bg-green-100 text-green-700 px-4 py-2 rounded-xl text-sm font-bold hover:bg-green-200 transition-all">
+            <i class="ri-file-excel-line"></i> Export Returns CSV
+          </button>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 mb-6">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2">From Date</label>
+              <input type="date" id="return-from-date" class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2">To Date</label>
+              <input type="date" id="return-to-date" class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+            </div>
+            <div class="flex items-end">
+              <button onclick="loadReturnsTables()" class="w-full bg-primary-500 text-white px-6 py-2 rounded-xl font-semibold hover:bg-primary-600 transition-all">
+                <i class="ri-filter-3-line"></i> Filter
+              </button>
+            </div>
+            <div class="flex items-end">
+              <button onclick="setReturnRange('all')" class="w-full bg-gray-100 text-gray-700 px-6 py-2 rounded-xl font-semibold hover:bg-gray-200 transition-all">
+                <i class="ri-refresh-line"></i> Show All
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+            <h3 class="text-xl font-bold text-gray-900 mb-4">Customer Return</h3>
+            <form id="customer-return-form" onsubmit="saveCustomerReturn(event)" class="space-y-4">
+              <input type="hidden" id="customer-return-id" />
+              <input type="hidden" id="customer-return-bill-id" />
+              <input type="hidden" id="customer-return-bill-item-index" />
+              <input type="hidden" id="customer-return-max-qty" />
+
+              <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <h4 class="font-semibold text-amber-800 mb-3">Bill-based Return (Old Bill)</h4>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Bill No.</label>
+                    <input type="number" id="customer-return-bill-no" min="1" class="w-full px-3 py-2 border-2 border-amber-200 rounded-lg focus:border-amber-500 focus:outline-none" placeholder="Enter bill number" />
+                  </div>
+                  <div>
+                    <button type="button" onclick="loadBillForReturn()" class="w-full bg-amber-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-amber-600 transition-all">
+                      <i class="ri-receipt-line"></i> Load Bill
+                    </button>
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Bill Item</label>
+                    <select id="customer-return-bill-item" onchange="selectBillReturnItem()" class="w-full px-3 py-2 border-2 border-amber-200 rounded-lg focus:border-amber-500 focus:outline-none bg-white">
+                      <option value="">Select bill item</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Date</label>
+                  <input type="date" id="customer-return-date" required class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Barcode</label>
+                  <input type="text" id="customer-return-barcode" required oninput="handleCustomerReturnBarcode(this.value)" class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" placeholder="Scan or type barcode" />
+                </div>
+                <div class="md:col-span-2">
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Item Name</label>
+                  <input type="text" id="customer-return-name" readonly class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl bg-gray-50" />
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Quantity</label>
+                  <input type="number" id="customer-return-qty" oninput="recalcCustomerReturnAmount()" step="0.01" min="0.01" required class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Refund Amount (Rs.)</label>
+                  <input type="number" id="customer-return-amount" step="0.01" min="0" required class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+                </div>
+                <div class="md:col-span-2">
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Reason</label>
+                  <input type="text" id="customer-return-reason" placeholder="Damaged / Wrong item / Other" class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+                </div>
+              </div>
+              <button type="submit" class="bg-gradient-to-r from-amber-500 to-amber-700 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all">
+                <i class="ri-arrow-go-back-line"></i> Save Customer Return
+              </button>
+            </form>
+          </div>
+
+          <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+            <h3 class="text-xl font-bold text-gray-900 mb-4">Supplier Return</h3>
+            <form id="supplier-return-form" onsubmit="saveSupplierReturn(event)" class="space-y-4">
+              <input type="hidden" id="supplier-return-id" />
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Date</label>
+                  <input type="date" id="supplier-return-date" required class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Barcode</label>
+                  <input type="text" id="supplier-return-barcode" required oninput="handleSupplierReturnBarcode(this.value)" class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" placeholder="Scan or type barcode" />
+                </div>
+                <div class="md:col-span-2">
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Item Name</label>
+                  <input type="text" id="supplier-return-name" readonly class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl bg-gray-50" />
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Quantity</label>
+                  <input type="number" id="supplier-return-qty" oninput="recalcSupplierReturnAmount()" step="0.01" min="0.01" required class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Credit Amount (Rs.)</label>
+                  <input type="number" id="supplier-return-amount" step="0.01" min="0" required class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+                </div>
+                <div class="md:col-span-2">
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Supplier Name</label>
+                  <input type="text" id="supplier-return-supplier" placeholder="Supplier name" class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+                </div>
+                <div class="md:col-span-2">
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Reason</label>
+                  <input type="text" id="supplier-return-reason" placeholder="Damaged stock / Wrong batch / Other" class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:outline-none" />
+                </div>
+              </div>
+              <button type="submit" class="bg-gradient-to-r from-cyan-500 to-cyan-700 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all">
+                <i class="ri-arrow-go-forward-line"></i> Save Supplier Return
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div class="stat-card bg-gradient-to-br from-amber-500 to-amber-700 text-white">
+            <div>
+              <p class="text-amber-100 text-sm font-medium">Customer Return Total</p>
+              <h3 class="text-3xl font-bold mt-2">Rs. <span id="customer-return-total">0.00</span></h3>
+            </div>
+          </div>
+          <div class="stat-card bg-gradient-to-br from-cyan-500 to-cyan-700 text-white">
+            <div>
+              <p class="text-cyan-100 text-sm font-medium">Supplier Return Total</p>
+              <h3 class="text-3xl font-bold mt-2">Rs. <span id="supplier-return-total">0.00</span></h3>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100 mb-6">
+          <div class="p-6">
+            <h3 class="text-xl font-bold text-gray-900">Customer Return List</h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-gradient-to-r from-gray-50 to-gray-100">
+                <tr>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Date</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Barcode</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Item</th>
+                  <th class="px-6 py-4 text-right text-sm font-semibold text-gray-700">Qty</th>
+                  <th class="px-6 py-4 text-right text-sm font-semibold text-gray-700">Refund</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Reason</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="customer-return-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100 mb-6">
+          <div class="p-6">
+            <h3 class="text-xl font-bold text-gray-900">Supplier Return List</h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-gradient-to-r from-gray-50 to-gray-100">
+                <tr>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Date</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Supplier</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Barcode</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Item</th>
+                  <th class="px-6 py-4 text-right text-sm font-semibold text-gray-700">Qty</th>
+                  <th class="px-6 py-4 text-right text-sm font-semibold text-gray-700">Credit</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Reason</th>
+                  <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="supplier-return-table-body"></tbody>
             </table>
           </div>
         </div>

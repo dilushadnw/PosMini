@@ -5,6 +5,7 @@ let cart = [];
 let products = [];
 let currentFilter = 'all';
 let purchaseCart = [];
+let loadedReturnBill = null;
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
@@ -19,6 +20,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const expenseDateEl = document.getElementById('expense-date');
     const expenseFromDateEl = document.getElementById('expense-from-date');
     const expenseToDateEl = document.getElementById('expense-to-date');
+    const returnFromDateEl = document.getElementById('return-from-date');
+    const returnToDateEl = document.getElementById('return-to-date');
+    const customerReturnDateEl = document.getElementById('customer-return-date');
+    const supplierReturnDateEl = document.getElementById('supplier-return-date');
     if (expenseDateEl) expenseDateEl.value = today;
     if (expenseFromDateEl) {
         const monthStart = new Date();
@@ -26,6 +31,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         expenseFromDateEl.value = monthStart.toISOString().split('T')[0];
     }
     if (expenseToDateEl) expenseToDateEl.value = today;
+    if (returnFromDateEl) {
+        const monthStart = new Date();
+        monthStart.setDate(1);
+        returnFromDateEl.value = monthStart.toISOString().split('T')[0];
+    }
+    if (returnToDateEl) returnToDateEl.value = today;
+    if (customerReturnDateEl) customerReturnDateEl.value = today;
+    if (supplierReturnDateEl) supplierReturnDateEl.value = today;
 });
 
 // Initialize application
@@ -174,6 +187,8 @@ function showPage(pageName) {
         generateReport();
     } else if (pageName === 'expenses') {
         loadExpensesPage();
+    } else if (pageName === 'returns') {
+        loadReturnsPage();
     } else if (pageName === 'settings') {
         loadShopSettings();
         loadCategories();
@@ -356,6 +371,611 @@ async function exportExpensesCSV() {
     const fromLabel = fromDate || 'all';
     const toLabel = toDate || 'all';
     downloadCSV(csv, `Expenses_${fromLabel}_to_${toLabel}.csv`);
+}
+
+async function loadReturnsPage() {
+    const today = new Date().toISOString().split('T')[0];
+    const monthStart = new Date();
+    monthStart.setDate(1);
+
+    const fromEl = document.getElementById('return-from-date');
+    const toEl = document.getElementById('return-to-date');
+    const customerDateEl = document.getElementById('customer-return-date');
+    const supplierDateEl = document.getElementById('supplier-return-date');
+
+    if (fromEl && !fromEl.value) fromEl.value = monthStart.toISOString().split('T')[0];
+    if (toEl && !toEl.value) toEl.value = today;
+    if (customerDateEl && !customerDateEl.value) customerDateEl.value = today;
+    if (supplierDateEl && !supplierDateEl.value) supplierDateEl.value = today;
+
+    await loadReturnsTables();
+}
+
+function resetCustomerReturnForm() {
+    const form = document.getElementById('customer-return-form');
+    if (form) form.reset();
+    const today = new Date().toISOString().split('T')[0];
+    const dateEl = document.getElementById('customer-return-date');
+    if (dateEl) dateEl.value = today;
+
+    document.getElementById('customer-return-id').value = '';
+    document.getElementById('customer-return-bill-id').value = '';
+    document.getElementById('customer-return-bill-item-index').value = '';
+    document.getElementById('customer-return-max-qty').value = '';
+    document.getElementById('customer-return-name').value = '';
+    const billItemSelect = document.getElementById('customer-return-bill-item');
+    if (billItemSelect) {
+        billItemSelect.innerHTML = '<option value="">Select bill item</option>';
+    }
+    loadedReturnBill = null;
+}
+
+function resetSupplierReturnForm() {
+    const form = document.getElementById('supplier-return-form');
+    if (form) form.reset();
+    const today = new Date().toISOString().split('T')[0];
+    const dateEl = document.getElementById('supplier-return-date');
+    if (dateEl) dateEl.value = today;
+    document.getElementById('supplier-return-id').value = '';
+    document.getElementById('supplier-return-name').value = '';
+}
+
+async function resolveReturnProduct(ref) {
+    if (ref.productId) {
+        const byId = await DB.products.getById(Number(ref.productId));
+        if (byId) return byId;
+    }
+    if (ref.barcode) {
+        const byBarcode = await DB.products.getByBarcode(ref.barcode);
+        if (byBarcode) return byBarcode;
+    }
+    if (ref.name) {
+        const searchResults = await DB.products.search(ref.name);
+        const exact = searchResults.find(p => p.name === ref.name);
+        if (exact) return exact;
+        return searchResults[0] || null;
+    }
+    return null;
+}
+
+async function applyReturnStockEffect(type, product, qty) {
+    const currentStock = Number(product.stock) || 0;
+    const quantity = Number(qty) || 0;
+    if (quantity <= 0) {
+        throw new Error('Invalid return quantity');
+    }
+
+    if (type === 'customer') {
+        await DB.products.update(product.id, { stock: currentStock + quantity });
+        return;
+    }
+
+    if (type === 'supplier') {
+        if (currentStock < quantity) {
+            throw new Error(`Not enough stock to return. Available: ${currentStock}`);
+        }
+        await DB.products.update(product.id, { stock: currentStock - quantity });
+        return;
+    }
+
+    throw new Error('Unknown return type');
+}
+
+async function revertReturnStockEffect(entry) {
+    const product = await resolveReturnProduct({
+        productId: entry.productId,
+        barcode: entry.barcode,
+        name: entry.productName
+    });
+
+    if (!product) {
+        throw new Error('Original product not found to revert stock effect');
+    }
+
+    const qty = Number(entry.quantity) || 0;
+    const currentStock = Number(product.stock) || 0;
+
+    if (entry.type === 'customer') {
+        if (currentStock < qty) {
+            throw new Error(`Cannot edit/delete: current stock (${currentStock}) is lower than returned qty (${qty})`);
+        }
+        await DB.products.update(product.id, { stock: currentStock - qty });
+        return;
+    }
+
+    if (entry.type === 'supplier') {
+        await DB.products.update(product.id, { stock: currentStock + qty });
+        return;
+    }
+
+    throw new Error('Unknown return type on revert');
+}
+
+async function setReturnRange(range) {
+    const fromEl = document.getElementById('return-from-date');
+    const toEl = document.getElementById('return-to-date');
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    let from = today;
+    let to = today;
+
+    if (range === 'all') {
+        const allReturns = await DB.returns.getAll();
+        const allDates = allReturns
+            .map(r => new Date(r.date))
+            .filter(d => !isNaN(d.getTime()));
+        if (allDates.length > 0) {
+            const minDate = new Date(Math.min(...allDates.map(d => d.getTime())));
+            from = minDate.toISOString().split('T')[0];
+        }
+    }
+
+    if (fromEl) fromEl.value = from;
+    if (toEl) toEl.value = to;
+    await loadReturnsTables();
+}
+
+async function exportReturnsCSV() {
+    const fromDate = document.getElementById('return-from-date')?.value;
+    const toDate = document.getElementById('return-to-date')?.value;
+
+    let returns = [];
+    if (fromDate && toDate) {
+        returns = await DB.returns.getByDateRange(fromDate, toDate);
+    } else {
+        returns = await DB.returns.getAll();
+    }
+
+    returns.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    if (returns.length === 0) {
+        alert('No return records found to export');
+        return;
+    }
+
+    let csv = 'Date,Type,Bill No,Supplier,Barcode,Item,Qty,Amount,Reason\n';
+    returns.forEach((r) => {
+        const date = formatDateForDisplay(r.date);
+        const type = (r.type || '').replaceAll('"', '""');
+        const billNo = (r.billId || '').toString().replaceAll('"', '""');
+        const supplier = (r.supplier || '').replaceAll('"', '""');
+        const barcode = (r.barcode || '').replaceAll('"', '""');
+        const item = (r.productName || '').replaceAll('"', '""');
+        const qty = Number(r.quantity || 0);
+        const amount = (Number(r.amount) || 0).toFixed(2);
+        const reason = (r.reason || '').replaceAll('"', '""');
+        csv += `${date},"${type}","${billNo}","${supplier}","${barcode}","${item}",${qty},${amount},"${reason}"\n`;
+    });
+
+    const fromLabel = fromDate || 'all';
+    const toLabel = toDate || 'all';
+    downloadCSV(csv, `Returns_${fromLabel}_to_${toLabel}.csv`);
+}
+
+async function loadBillForReturn() {
+    const billNo = parseInt(document.getElementById('customer-return-bill-no').value, 10);
+    if (!billNo) {
+        alert('Please enter a valid bill number');
+        return;
+    }
+
+    const sale = await DB.sales.getById(billNo);
+    if (!sale) {
+        alert('Bill not found');
+        loadedReturnBill = null;
+        document.getElementById('customer-return-bill-item').innerHTML = '<option value="">Select bill item</option>';
+        return;
+    }
+
+    loadedReturnBill = sale;
+    const select = document.getElementById('customer-return-bill-item');
+    const options = (sale.items || []).map((item, index) => {
+        const qty = Number(item.quantity || 0);
+        const amount = Number(item.total || 0);
+        const barcode = item.barcode || '';
+        return `<option value="${index}">${item.name} | ${barcode || 'No Barcode'} | Qty: ${qty} | Rs. ${amount.toFixed(2)}</option>`;
+    }).join('');
+
+    select.innerHTML = '<option value="">Select bill item</option>' + options;
+    document.getElementById('customer-return-bill-id').value = billNo;
+    document.getElementById('customer-return-bill-item-index').value = '';
+    document.getElementById('customer-return-max-qty').value = '';
+}
+
+async function selectBillReturnItem() {
+    const select = document.getElementById('customer-return-bill-item');
+    const idxStr = select.value;
+    if (!loadedReturnBill || idxStr === '') {
+        return;
+    }
+
+    const idx = Number(idxStr);
+    const item = loadedReturnBill.items?.[idx];
+    if (!item) return;
+
+    document.getElementById('customer-return-bill-item-index').value = String(idx);
+    document.getElementById('customer-return-max-qty').value = Number(item.quantity || 0);
+
+    let barcode = item.barcode || '';
+    if (!barcode) {
+        const productByName = await resolveReturnProduct({ name: item.name });
+        if (productByName?.barcode) barcode = productByName.barcode;
+    }
+
+    document.getElementById('customer-return-barcode').value = barcode;
+    document.getElementById('customer-return-name').value = item.name || '';
+    document.getElementById('customer-return-qty').value = Number(item.quantity || 0);
+    document.getElementById('customer-return-amount').value = Number(item.total || 0).toFixed(2);
+}
+
+async function handleCustomerReturnBarcode(barcode) {
+    const normalized = (barcode || '').trim();
+    const nameEl = document.getElementById('customer-return-name');
+    if (!normalized) {
+        if (nameEl) nameEl.value = '';
+        return;
+    }
+
+    const product = await DB.products.getByBarcode(normalized);
+    if (!product) {
+        if (nameEl) nameEl.value = '';
+        return;
+    }
+
+    if (nameEl) nameEl.value = product.name || '';
+    recalcCustomerReturnAmount();
+}
+
+async function handleSupplierReturnBarcode(barcode) {
+    const normalized = (barcode || '').trim();
+    const nameEl = document.getElementById('supplier-return-name');
+    if (!normalized) {
+        if (nameEl) nameEl.value = '';
+        return;
+    }
+
+    const product = await DB.products.getByBarcode(normalized);
+    if (!product) {
+        if (nameEl) nameEl.value = '';
+        return;
+    }
+
+    if (nameEl) nameEl.value = product.name || '';
+    recalcSupplierReturnAmount();
+}
+
+async function recalcCustomerReturnAmount() {
+    const barcode = document.getElementById('customer-return-barcode')?.value?.trim();
+    const qty = parseFloat(document.getElementById('customer-return-qty')?.value || '0');
+    const amountEl = document.getElementById('customer-return-amount');
+    if (!barcode || !amountEl || qty <= 0) return;
+
+    const product = await DB.products.getByBarcode(barcode);
+    if (!product) return;
+    amountEl.value = (qty * (Number(product.price) || 0)).toFixed(2);
+}
+
+async function recalcSupplierReturnAmount() {
+    const barcode = document.getElementById('supplier-return-barcode')?.value?.trim();
+    const qty = parseFloat(document.getElementById('supplier-return-qty')?.value || '0');
+    const amountEl = document.getElementById('supplier-return-amount');
+    if (!barcode || !amountEl || qty <= 0) return;
+
+    const product = await DB.products.getByBarcode(barcode);
+    if (!product) return;
+    amountEl.value = (qty * (Number(product.buyingPrice) || 0)).toFixed(2);
+}
+
+async function saveCustomerReturn(event) {
+    event.preventDefault();
+
+    const returnId = parseInt(document.getElementById('customer-return-id').value || '0', 10);
+    const dateInput = document.getElementById('customer-return-date').value;
+    const barcode = document.getElementById('customer-return-barcode').value.trim();
+    const qty = parseFloat(document.getElementById('customer-return-qty').value);
+    const amount = parseFloat(document.getElementById('customer-return-amount').value);
+    const reason = document.getElementById('customer-return-reason').value.trim();
+    const billId = parseInt(document.getElementById('customer-return-bill-id').value || '0', 10);
+    const billItemIndex = document.getElementById('customer-return-bill-item-index').value;
+    const maxQty = parseFloat(document.getElementById('customer-return-max-qty').value || '0');
+
+    if (!dateInput || !barcode || isNaN(qty) || qty <= 0 || isNaN(amount) || amount < 0) {
+        alert('Please fill customer return fields correctly');
+        return;
+    }
+
+    if (maxQty > 0 && qty > maxQty) {
+        alert(`Return qty cannot exceed original bill qty (${maxQty})`);
+        return;
+    }
+
+    const product = await DB.products.getByBarcode(barcode);
+    if (!product) {
+        alert('Product not found for this barcode');
+        return;
+    }
+
+    try {
+        const payload = {
+            type: 'customer',
+            date: new Date(`${dateInput}T12:00:00`),
+            productId: product.id,
+            barcode: product.barcode || barcode,
+            productName: product.name,
+            quantity: qty,
+            amount,
+            buyingPrice: Number(product.buyingPrice) || 0,
+            sellingPrice: Number(product.price) || 0,
+            reason,
+            billId: billId || null,
+            billItemIndex: billItemIndex !== '' ? Number(billItemIndex) : null
+        };
+
+        if (returnId > 0) {
+            const oldEntry = await DB.returns.getById(returnId);
+            if (!oldEntry) {
+                alert('Return record not found for editing');
+                return;
+            }
+            await revertReturnStockEffect(oldEntry);
+            await applyReturnStockEffect('customer', product, qty);
+            await DB.returns.update(returnId, payload);
+        } else {
+            await applyReturnStockEffect('customer', product, qty);
+            await DB.returns.add(payload);
+        }
+
+        resetCustomerReturnForm();
+        await loadProducts();
+        await updateDashboard();
+        await loadReturnsTables();
+        if (document.getElementById('report-from-date') && document.getElementById('report-to-date')) {
+            await generateReport();
+        }
+
+        alert(`Customer return ${returnId > 0 ? 'updated' : 'saved'} and stock updated!`);
+    } catch (error) {
+        console.error('Customer return save error:', error);
+        alert(error.message || 'Error saving customer return.');
+    }
+}
+
+async function saveSupplierReturn(event) {
+    event.preventDefault();
+
+    const returnId = parseInt(document.getElementById('supplier-return-id').value || '0', 10);
+    const dateInput = document.getElementById('supplier-return-date').value;
+    const barcode = document.getElementById('supplier-return-barcode').value.trim();
+    const qty = parseFloat(document.getElementById('supplier-return-qty').value);
+    const amount = parseFloat(document.getElementById('supplier-return-amount').value);
+    const supplier = document.getElementById('supplier-return-supplier').value.trim();
+    const reason = document.getElementById('supplier-return-reason').value.trim();
+
+    if (!dateInput || !barcode || isNaN(qty) || qty <= 0 || isNaN(amount) || amount < 0) {
+        alert('Please fill supplier return fields correctly');
+        return;
+    }
+
+    const product = await DB.products.getByBarcode(barcode);
+    if (!product) {
+        alert('Product not found for this barcode');
+        return;
+    }
+
+    try {
+        const payload = {
+            type: 'supplier',
+            date: new Date(`${dateInput}T12:00:00`),
+            productId: product.id,
+            barcode: product.barcode || barcode,
+            productName: product.name,
+            quantity: qty,
+            amount,
+            buyingPrice: Number(product.buyingPrice) || 0,
+            sellingPrice: Number(product.price) || 0,
+            supplier,
+            reason
+        };
+
+        if (returnId > 0) {
+            const oldEntry = await DB.returns.getById(returnId);
+            if (!oldEntry) {
+                alert('Return record not found for editing');
+                return;
+            }
+            await revertReturnStockEffect(oldEntry);
+            await applyReturnStockEffect('supplier', product, qty);
+            await DB.returns.update(returnId, payload);
+        } else {
+            await applyReturnStockEffect('supplier', product, qty);
+            await DB.returns.add(payload);
+        }
+
+        resetSupplierReturnForm();
+        await loadProducts();
+        await updateDashboard();
+        await loadReturnsTables();
+        if (document.getElementById('report-from-date') && document.getElementById('report-to-date')) {
+            await generateReport();
+        }
+
+        alert(`Supplier return ${returnId > 0 ? 'updated' : 'saved'} and stock updated!`);
+    } catch (error) {
+        console.error('Supplier return save error:', error);
+        alert(error.message || 'Error saving supplier return.');
+    }
+}
+
+async function editCustomerReturn(returnId) {
+    const entry = await DB.returns.getById(returnId);
+    if (!entry || entry.type !== 'customer') {
+        alert('Customer return record not found');
+        return;
+    }
+
+    document.getElementById('customer-return-id').value = entry.id;
+    const d = new Date(entry.date);
+    document.getElementById('customer-return-date').value = isNaN(d.getTime()) ? new Date().toISOString().split('T')[0] : d.toISOString().split('T')[0];
+    document.getElementById('customer-return-barcode').value = entry.barcode || '';
+    document.getElementById('customer-return-name').value = entry.productName || '';
+    document.getElementById('customer-return-qty').value = Number(entry.quantity || 0);
+    document.getElementById('customer-return-amount').value = Number(entry.amount || 0).toFixed(2);
+    document.getElementById('customer-return-reason').value = entry.reason || '';
+    document.getElementById('customer-return-bill-id').value = entry.billId || '';
+    document.getElementById('customer-return-bill-item-index').value = entry.billItemIndex ?? '';
+    document.getElementById('customer-return-max-qty').value = Number(entry.quantity || 0);
+
+    const billNoEl = document.getElementById('customer-return-bill-no');
+    if (billNoEl && entry.billId) billNoEl.value = entry.billId;
+}
+
+async function editSupplierReturn(returnId) {
+    const entry = await DB.returns.getById(returnId);
+    if (!entry || entry.type !== 'supplier') {
+        alert('Supplier return record not found');
+        return;
+    }
+
+    document.getElementById('supplier-return-id').value = entry.id;
+    const d = new Date(entry.date);
+    document.getElementById('supplier-return-date').value = isNaN(d.getTime()) ? new Date().toISOString().split('T')[0] : d.toISOString().split('T')[0];
+    document.getElementById('supplier-return-barcode').value = entry.barcode || '';
+    document.getElementById('supplier-return-name').value = entry.productName || '';
+    document.getElementById('supplier-return-qty').value = Number(entry.quantity || 0);
+    document.getElementById('supplier-return-amount').value = Number(entry.amount || 0).toFixed(2);
+    document.getElementById('supplier-return-supplier').value = entry.supplier || '';
+    document.getElementById('supplier-return-reason').value = entry.reason || '';
+}
+
+async function deleteCustomerReturn(returnId) {
+    if (!confirm('Delete this customer return record?')) return;
+
+    try {
+        const entry = await DB.returns.getById(returnId);
+        if (!entry || entry.type !== 'customer') {
+            alert('Customer return record not found');
+            return;
+        }
+
+        await revertReturnStockEffect(entry);
+        await DB.returns.delete(returnId);
+        resetCustomerReturnForm();
+        await loadProducts();
+        await updateDashboard();
+        await loadReturnsTables();
+        if (document.getElementById('report-from-date') && document.getElementById('report-to-date')) {
+            await generateReport();
+        }
+    } catch (error) {
+        console.error('Delete customer return error:', error);
+        alert(error.message || 'Error deleting customer return');
+    }
+}
+
+async function deleteSupplierReturn(returnId) {
+    if (!confirm('Delete this supplier return record?')) return;
+
+    try {
+        const entry = await DB.returns.getById(returnId);
+        if (!entry || entry.type !== 'supplier') {
+            alert('Supplier return record not found');
+            return;
+        }
+
+        await revertReturnStockEffect(entry);
+        await DB.returns.delete(returnId);
+        resetSupplierReturnForm();
+        await loadProducts();
+        await updateDashboard();
+        await loadReturnsTables();
+        if (document.getElementById('report-from-date') && document.getElementById('report-to-date')) {
+            await generateReport();
+        }
+    } catch (error) {
+        console.error('Delete supplier return error:', error);
+        alert(error.message || 'Error deleting supplier return');
+    }
+}
+
+async function loadReturnsTables() {
+    const fromDate = document.getElementById('return-from-date')?.value;
+    const toDate = document.getElementById('return-to-date')?.value;
+
+    let returns = [];
+    if (fromDate && toDate) {
+        returns = await DB.returns.getByDateRange(fromDate, toDate);
+    } else {
+        returns = await DB.returns.getAll();
+    }
+
+    const customerReturns = returns
+        .filter(r => r.type === 'customer')
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+    const supplierReturns = returns
+        .filter(r => r.type === 'supplier')
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const customerTotal = customerReturns.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const supplierTotal = supplierReturns.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+    const customerTotalEl = document.getElementById('customer-return-total');
+    const supplierTotalEl = document.getElementById('supplier-return-total');
+    if (customerTotalEl) customerTotalEl.textContent = customerTotal.toFixed(2);
+    if (supplierTotalEl) supplierTotalEl.textContent = supplierTotal.toFixed(2);
+
+    const customerBody = document.getElementById('customer-return-table-body');
+    const supplierBody = document.getElementById('supplier-return-table-body');
+
+    if (customerBody) {
+        if (customerReturns.length === 0) {
+            customerBody.innerHTML = '<tr><td colspan="7" class="px-6 py-8 text-center text-gray-400">No customer returns for selected period</td></tr>';
+        } else {
+            customerBody.innerHTML = customerReturns.map(r => `
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-4 text-sm text-gray-600">${formatDateForDisplay(r.date)}</td>
+                    <td class="px-6 py-4 text-sm font-mono text-gray-700">${r.barcode || ''}</td>
+                    <td class="px-6 py-4 text-sm font-medium text-gray-900">${r.productName || ''}</td>
+                    <td class="px-6 py-4 text-right text-sm text-gray-700">${Number(r.quantity || 0)}</td>
+                    <td class="px-6 py-4 text-right text-sm font-bold text-amber-700">Rs. ${(Number(r.amount) || 0).toFixed(2)}</td>
+                    <td class="px-6 py-4 text-sm text-gray-600">${r.reason || '-'}</td>
+                    <td class="px-6 py-4 text-sm whitespace-nowrap">
+                        <button onclick="editCustomerReturn(${r.id})" class="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded-lg transition-all">
+                            <i class="ri-edit-line"></i>
+                        </button>
+                        <button onclick="deleteCustomerReturn(${r.id})" class="text-red-600 hover:text-red-800 p-2 hover:bg-red-50 rounded-lg transition-all">
+                            <i class="ri-delete-bin-line"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+    }
+
+    if (supplierBody) {
+        if (supplierReturns.length === 0) {
+            supplierBody.innerHTML = '<tr><td colspan="8" class="px-6 py-8 text-center text-gray-400">No supplier returns for selected period</td></tr>';
+        } else {
+            supplierBody.innerHTML = supplierReturns.map(r => `
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-4 text-sm text-gray-600">${formatDateForDisplay(r.date)}</td>
+                    <td class="px-6 py-4 text-sm text-gray-700">${r.supplier || '-'}</td>
+                    <td class="px-6 py-4 text-sm font-mono text-gray-700">${r.barcode || ''}</td>
+                    <td class="px-6 py-4 text-sm font-medium text-gray-900">${r.productName || ''}</td>
+                    <td class="px-6 py-4 text-right text-sm text-gray-700">${Number(r.quantity || 0)}</td>
+                    <td class="px-6 py-4 text-right text-sm font-bold text-cyan-700">Rs. ${(Number(r.amount) || 0).toFixed(2)}</td>
+                    <td class="px-6 py-4 text-sm text-gray-600">${r.reason || '-'}</td>
+                    <td class="px-6 py-4 text-sm whitespace-nowrap">
+                        <button onclick="editSupplierReturn(${r.id})" class="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded-lg transition-all">
+                            <i class="ri-edit-line"></i>
+                        </button>
+                        <button onclick="deleteSupplierReturn(${r.id})" class="text-red-600 hover:text-red-800 p-2 hover:bg-red-50 rounded-lg transition-all">
+                            <i class="ri-delete-bin-line"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+    }
 }
 
 // Toggle mobile menu
@@ -982,16 +1602,18 @@ async function setReportRange(range) {
     let to = today;
     
     if (range === 'all') {
-        const [allSales, allPurchases, allExpenses] = await Promise.all([
+        const [allSales, allPurchases, allExpenses, allReturns] = await Promise.all([
             DB.sales.getAll(),
             DB.purchases.getAll(),
-            DB.expenses.getAll()
+            DB.expenses.getAll(),
+            DB.returns.getAll()
         ]);
 
         const allDates = [
             ...allSales.map(s => s.date),
             ...allPurchases.map(p => p.date),
-            ...allExpenses.map(e => e.date)
+            ...allExpenses.map(e => e.date),
+            ...allReturns.map(r => r.date)
         ]
             .filter(Boolean)
             .map(d => new Date(d))
@@ -1032,29 +1654,48 @@ async function generateReport() {
     // --- 1. SALES REPORT ---
     const sales = await DB.sales.getByDateRange(fromDate, toDate);
     
+    const returns = await DB.returns.getByDateRange(fromDate, toDate);
+    const customerReturns = returns.filter(r => r.type === 'customer');
+    const supplierReturns = returns.filter(r => r.type === 'supplier');
+
     // Stats
-    const totalSales = sales.reduce((sum, sale) => sum + sale.totalAmount, 0);
+    const grossSales = sales.reduce((sum, sale) => sum + sale.totalAmount, 0);
     const totalTransactions = sales.length;
-    const avgBill = totalTransactions > 0 ? totalSales / totalTransactions : 0;
+    const totalCustomerReturnAmount = customerReturns.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const totalSupplierReturnAmount = supplierReturns.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const netSales = grossSales - totalCustomerReturnAmount;
+    const avgBill = totalTransactions > 0 ? netSales / totalTransactions : 0;
     
     // Profit Logic
-    const totalCost = sales.reduce((sum, sale) => {
+    const grossCost = sales.reduce((sum, sale) => {
         const saleCost = sale.items.reduce((isum, item) => {
             const itemBuyingPrice = item.buyingPrice || 0;
             return isum + (itemBuyingPrice * item.quantity);
         }, 0);
         return sum + saleCost;
     }, 0);
+
+    const customerReturnCost = customerReturns.reduce((sum, r) => {
+        const unitCost = Number(r.buyingPrice) || 0;
+        const qty = Number(r.quantity) || 0;
+        return sum + (unitCost * qty);
+    }, 0);
     
-    const totalProfit = totalSales - totalCost;
-    const margin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
+    const netCost = grossCost - customerReturnCost;
+    const grossProfit = netSales - netCost;
+    const margin = netSales > 0 ? (grossProfit / netSales) * 100 : 0;
     
     // Update Stats UI
-    document.getElementById('report-total-sales').textContent = totalSales.toFixed(2);
+    document.getElementById('report-total-sales').textContent = netSales.toFixed(2);
     document.getElementById('report-total-profit').innerHTML = 
-        `${totalProfit.toFixed(2)} <span class="text-sm font-normal opacity-80">(${margin.toFixed(1)}%)</span>`;
+        `${grossProfit.toFixed(2)} <span class="text-sm font-normal opacity-80">(${margin.toFixed(1)}%)</span>`;
     document.getElementById('report-total-transactions').textContent = totalTransactions;
     document.getElementById('report-avg-bill').textContent = avgBill.toFixed(2);
+
+    const reportCustomerReturns = document.getElementById('report-customer-returns');
+    const reportSupplierReturns = document.getElementById('report-supplier-returns');
+    if (reportCustomerReturns) reportCustomerReturns.textContent = totalCustomerReturnAmount.toFixed(2);
+    if (reportSupplierReturns) reportSupplierReturns.textContent = totalSupplierReturnAmount.toFixed(2);
     
     // Top Products Logic
     const productStats = {};
@@ -1064,6 +1705,12 @@ async function generateReport() {
             productStats[item.name].qty += item.quantity;
             productStats[item.name].revenue += item.total;
         });
+    });
+
+    customerReturns.forEach(r => {
+        if (!r.productName || !productStats[r.productName]) return;
+        productStats[r.productName].qty = Math.max(0, productStats[r.productName].qty - (Number(r.quantity) || 0));
+        productStats[r.productName].revenue = Math.max(0, productStats[r.productName].revenue - (Number(r.amount) || 0));
     });
     
     const topProducts = Object.entries(productStats)
@@ -1113,18 +1760,61 @@ async function generateReport() {
     // --- 2. INCOME STATEMENT ---
     const expenses = await DB.expenses.getByDateRange(fromDate, toDate);
     const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-    const netProfit = totalProfit - totalExpenses;
+    const netProfit = grossProfit - totalExpenses + totalSupplierReturnAmount;
 
-    document.getElementById('is-revenue').textContent = totalSales.toFixed(2);
-    document.getElementById('is-cogs').textContent = totalCost.toFixed(2);
-    document.getElementById('is-gross-profit').textContent = totalProfit.toFixed(2);
+    document.getElementById('is-revenue').textContent = netSales.toFixed(2);
+    document.getElementById('is-cogs').textContent = netCost.toFixed(2);
+    document.getElementById('is-gross-profit').textContent = grossProfit.toFixed(2);
     document.getElementById('is-expenses').textContent = totalExpenses.toFixed(2);
+    const supplierReturnEl = document.getElementById('is-supplier-returns');
+    if (supplierReturnEl) supplierReturnEl.textContent = totalSupplierReturnAmount.toFixed(2);
     document.getElementById('is-net-profit').textContent = netProfit.toFixed(2);
 
     const expenseTableBody = document.getElementById('report-expense-table-body');
     const reportExpenseTotal = document.getElementById('report-expense-total');
     if (reportExpenseTotal) {
         reportExpenseTotal.textContent = totalExpenses.toFixed(2);
+    }
+
+    const reportCustomerReturnBody = document.getElementById('report-customer-return-body');
+    const reportSupplierReturnBody = document.getElementById('report-supplier-return-body');
+
+    if (reportCustomerReturnBody) {
+        if (customerReturns.length === 0) {
+            reportCustomerReturnBody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-400">No customer returns for selected period</td></tr>';
+        } else {
+            const rows = [...customerReturns]
+                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                .map(r => `
+                    <tr class="hover:bg-gray-50 transition-colors">
+                        <td class="px-6 py-4 text-sm text-gray-600">${formatDateForDisplay(r.date)}</td>
+                        <td class="px-6 py-4 text-sm font-mono text-gray-700">${r.barcode || ''}</td>
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900">${r.productName || ''}</td>
+                        <td class="px-6 py-4 text-right text-sm text-gray-700">${Number(r.quantity || 0)}</td>
+                        <td class="px-6 py-4 text-right text-sm font-bold text-amber-700">Rs. ${(Number(r.amount) || 0).toFixed(2)}</td>
+                    </tr>
+                `).join('');
+            reportCustomerReturnBody.innerHTML = rows;
+        }
+    }
+
+    if (reportSupplierReturnBody) {
+        if (supplierReturns.length === 0) {
+            reportSupplierReturnBody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-400">No supplier returns for selected period</td></tr>';
+        } else {
+            const rows = [...supplierReturns]
+                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                .map(r => `
+                    <tr class="hover:bg-gray-50 transition-colors">
+                        <td class="px-6 py-4 text-sm text-gray-600">${formatDateForDisplay(r.date)}</td>
+                        <td class="px-6 py-4 text-sm font-mono text-gray-700">${r.barcode || ''}</td>
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900">${r.productName || ''}</td>
+                        <td class="px-6 py-4 text-right text-sm text-gray-700">${Number(r.quantity || 0)}</td>
+                        <td class="px-6 py-4 text-right text-sm font-bold text-cyan-700">Rs. ${(Number(r.amount) || 0).toFixed(2)}</td>
+                    </tr>
+                `).join('');
+            reportSupplierReturnBody.innerHTML = rows;
+        }
     }
 
     if (expenseTableBody) {
