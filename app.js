@@ -96,12 +96,40 @@ async function buildStockSnapshot(cutoffDateTime) {
     const returns = await DB.returns.getAll();
 
     const byPid = new Map(products.map(p => [String(p.id), p]));
-    const byBarcode = new Map(products.map(p => [p.barcode || '', p]));
+    const byBarcode = new Map();
+    products.forEach((p) => {
+        const barcode = p.barcode || '';
+        if (!barcode) return;
+        if (!byBarcode.has(barcode)) byBarcode.set(barcode, []);
+        byBarcode.get(barcode).push(p);
+    });
     const byName = new Map(products.map(p => [p.name || '', p]));
 
     const resolveProduct = (item) => {
         if (item.productId && byPid.has(String(item.productId))) return byPid.get(String(item.productId));
-        if (item.barcode && byBarcode.has(item.barcode)) return byBarcode.get(item.barcode);
+
+        if (item.barcode && byBarcode.has(item.barcode)) {
+            const candidates = byBarcode.get(item.barcode) || [];
+            if (candidates.length === 1) return candidates[0];
+
+            const sellingPrice = Number(item.price ?? item.sellingPrice);
+            if (!Number.isNaN(sellingPrice)) {
+                const bySellPrice = candidates.find(p => Number(p.price) === sellingPrice);
+                if (bySellPrice) return bySellPrice;
+            }
+
+            const buyingPrice = Number(item.buyingPrice ?? item.cost);
+            if (!Number.isNaN(buyingPrice)) {
+                const byBuyPrice = candidates.find(p => Number(p.buyingPrice) === buyingPrice);
+                if (byBuyPrice) return byBuyPrice;
+            }
+
+            const byExactName = candidates.find(p => (p.name || '') === (item.name || item.productName || ''));
+            if (byExactName) return byExactName;
+
+            return candidates[0] || null;
+        }
+
         if (item.name && byName.has(item.name)) return byName.get(item.name);
         if (item.productName && byName.has(item.productName)) return byName.get(item.productName);
         return null;
@@ -727,6 +755,32 @@ async function loadBillForReturn() {
     document.getElementById('customer-return-max-qty').value = '';
 }
 
+async function getAllowedCustomerReturnQty(billId, billItemIndex, currentReturnId = 0) {
+    const parsedBillId = Number(billId);
+    const parsedItemIndex = Number(billItemIndex);
+    if (!Number.isInteger(parsedBillId) || parsedBillId <= 0 || !Number.isInteger(parsedItemIndex) || parsedItemIndex < 0) {
+        return null;
+    }
+
+    const sale = await DB.sales.getById(parsedBillId);
+    if (!sale || !Array.isArray(sale.items) || !sale.items[parsedItemIndex]) {
+        return null;
+    }
+
+    const soldQty = Number(sale.items[parsedItemIndex].quantity) || 0;
+    const allReturns = await DB.returns.getAll();
+    const alreadyReturned = allReturns
+        .filter(r =>
+            r.type === 'customer' &&
+            Number(r.billId) === parsedBillId &&
+            Number(r.billItemIndex) === parsedItemIndex &&
+            Number(r.id) !== Number(currentReturnId || 0)
+        )
+        .reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+
+    return Math.max(0, soldQty - alreadyReturned);
+}
+
 async function selectBillReturnItem() {
     const select = document.getElementById('customer-return-bill-item');
     const idxStr = select.value;
@@ -739,7 +793,10 @@ async function selectBillReturnItem() {
     if (!item) return;
 
     document.getElementById('customer-return-bill-item-index').value = String(idx);
-    document.getElementById('customer-return-max-qty').value = Number(item.quantity || 0);
+    const billId = Number(document.getElementById('customer-return-bill-id').value || 0);
+    const allowedQty = await getAllowedCustomerReturnQty(billId, idx, 0);
+    const safeAllowedQty = allowedQty === null ? (Number(item.quantity || 0)) : allowedQty;
+    document.getElementById('customer-return-max-qty').value = safeAllowedQty;
 
     let barcode = item.barcode || '';
     if (!barcode) {
@@ -749,8 +806,15 @@ async function selectBillReturnItem() {
 
     document.getElementById('customer-return-barcode').value = barcode;
     document.getElementById('customer-return-name').value = item.name || '';
-    document.getElementById('customer-return-qty').value = Number(item.quantity || 0);
-    document.getElementById('customer-return-amount').value = Number(item.total || 0).toFixed(2);
+    document.getElementById('customer-return-qty').value = safeAllowedQty;
+    const unitPrice = (Number(item.quantity || 0) > 0)
+        ? ((Number(item.total) || 0) / Number(item.quantity || 1))
+        : (Number(item.price) || 0);
+    document.getElementById('customer-return-amount').value = (safeAllowedQty * unitPrice).toFixed(2);
+
+    if (safeAllowedQty <= 0) {
+        alert('This bill item is already fully returned.');
+    }
 }
 
 async function handleCustomerReturnBarcode(barcode) {
@@ -822,16 +886,23 @@ async function saveCustomerReturn(event) {
     const reason = document.getElementById('customer-return-reason').value.trim();
     const billId = parseInt(document.getElementById('customer-return-bill-id').value || '0', 10);
     const billItemIndex = document.getElementById('customer-return-bill-item-index').value;
-    const maxQty = parseFloat(document.getElementById('customer-return-max-qty').value || '0');
 
     if (!dateInput || !barcode || isNaN(qty) || qty <= 0 || isNaN(amount) || amount < 0) {
         alert('Please fill customer return fields correctly');
         return;
     }
 
-    if (maxQty > 0 && qty > maxQty) {
-        alert(`Return qty cannot exceed original bill qty (${maxQty})`);
-        return;
+    const hasBillItemLink = Number.isInteger(billId) && billId > 0 && billItemIndex !== '' && !Number.isNaN(Number(billItemIndex));
+    if (hasBillItemLink) {
+        const allowedQty = await getAllowedCustomerReturnQty(billId, Number(billItemIndex), returnId);
+        if (allowedQty === null) {
+            alert('Selected bill item is invalid. Please reload bill details.');
+            return;
+        }
+        if (qty > allowedQty) {
+            alert(`Return qty exceeds allowed qty (${allowedQty}).`);
+            return;
+        }
     }
 
     const product = await DB.products.getByBarcode(barcode);
@@ -853,7 +924,7 @@ async function saveCustomerReturn(event) {
             sellingPrice: Number(product.price) || 0,
             reason,
             billId: billId || null,
-            billItemIndex: billItemIndex !== '' ? Number(billItemIndex) : null
+            billItemIndex: hasBillItemLink ? Number(billItemIndex) : null
         };
 
         if (returnId > 0) {
@@ -968,7 +1039,7 @@ async function editCustomerReturn(returnId) {
     document.getElementById('customer-return-reason').value = entry.reason || '';
     document.getElementById('customer-return-bill-id').value = entry.billId || '';
     document.getElementById('customer-return-bill-item-index').value = entry.billItemIndex ?? '';
-    document.getElementById('customer-return-max-qty').value = Number(entry.quantity || 0);
+    document.getElementById('customer-return-max-qty').value = '';
 
     const billNoEl = document.getElementById('customer-return-bill-no');
     if (billNoEl && entry.billId) billNoEl.value = entry.billId;
@@ -1316,14 +1387,20 @@ function addToCart(product, quantity) {
 }
 
 // Filter by category
-function filterByCategory(category) {
+function filterByCategory(event, category) {
     currentFilter = category;
     
     // Update active button
     document.querySelectorAll('.category-filter-btn').forEach(btn => {
         btn.classList.remove('active');
     });
-    event.target.closest('.category-filter-btn').classList.add('active');
+    if (event?.target?.closest) {
+        const btn = event.target.closest('.category-filter-btn');
+        if (btn) btn.classList.add('active');
+    } else {
+        const fallbackBtn = document.querySelector(`.category-filter-btn[data-category="${category}"]`);
+        if (fallbackBtn) fallbackBtn.classList.add('active');
+    }
     
     displayProducts();
 }
