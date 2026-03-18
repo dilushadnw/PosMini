@@ -6,6 +6,7 @@ let products = [];
 let currentFilter = 'all';
 let purchaseCart = [];
 let loadedReturnBill = null;
+let lastIncomeStatement = null;
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
@@ -1681,7 +1682,7 @@ async function generateReport() {
         return sum + (unitCost * qty);
     }, 0);
     
-    const netCost = grossCost - customerReturnCost;
+    const netCost = Math.max(0, grossCost - customerReturnCost - totalSupplierReturnAmount);
     const grossProfit = netSales - netCost;
     const margin = netSales > 0 ? (grossProfit / netSales) * 100 : 0;
     
@@ -1760,7 +1761,17 @@ async function generateReport() {
     // --- 2. INCOME STATEMENT ---
     const expenses = await DB.expenses.getByDateRange(fromDate, toDate);
     const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-    const netProfit = grossProfit - totalExpenses + totalSupplierReturnAmount;
+    const netProfit = grossProfit - totalExpenses;
+
+    const grossSalesEl = document.getElementById('is-gross-sales');
+    const customerReturnsEl = document.getElementById('is-customer-returns');
+    const cogsGrossEl = document.getElementById('is-cogs-gross');
+    const customerReturnCostEl = document.getElementById('is-customer-return-cost');
+
+    if (grossSalesEl) grossSalesEl.textContent = grossSales.toFixed(2);
+    if (customerReturnsEl) customerReturnsEl.textContent = totalCustomerReturnAmount.toFixed(2);
+    if (cogsGrossEl) cogsGrossEl.textContent = grossCost.toFixed(2);
+    if (customerReturnCostEl) customerReturnCostEl.textContent = customerReturnCost.toFixed(2);
 
     document.getElementById('is-revenue').textContent = netSales.toFixed(2);
     document.getElementById('is-cogs').textContent = netCost.toFixed(2);
@@ -1775,6 +1786,50 @@ async function generateReport() {
     if (reportExpenseTotal) {
         reportExpenseTotal.textContent = totalExpenses.toFixed(2);
     }
+
+    const expenseCategoryBody = document.getElementById('report-expense-category-body');
+    const expenseByCategory = expenses.reduce((map, expense) => {
+        const key = expense.category || 'Other';
+        map[key] = (map[key] || 0) + (Number(expense.amount) || 0);
+        return map;
+    }, {});
+
+    const expenseCategoryRows = Object.entries(expenseByCategory)
+        .map(([category, amount]) => ({ category, amount }))
+        .sort((a, b) => b.amount - a.amount);
+
+    if (expenseCategoryBody) {
+        if (expenseCategoryRows.length === 0) {
+            expenseCategoryBody.innerHTML = '<tr><td colspan="3" class="px-6 py-8 text-center text-gray-400">No expense categories for selected period</td></tr>';
+        } else {
+            expenseCategoryBody.innerHTML = expenseCategoryRows.map((row) => {
+                const share = totalExpenses > 0 ? (row.amount / totalExpenses) * 100 : 0;
+                return `
+                    <tr class="hover:bg-gray-50 transition-colors">
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900">${row.category}</td>
+                        <td class="px-6 py-4 text-sm text-right font-bold text-red-600">Rs. ${row.amount.toFixed(2)}</td>
+                        <td class="px-6 py-4 text-sm text-right text-gray-700">${share.toFixed(1)}%</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    lastIncomeStatement = {
+        fromDate,
+        toDate,
+        grossSales,
+        totalCustomerReturnAmount,
+        netSales,
+        grossCost,
+        totalSupplierReturnAmount,
+        customerReturnCost,
+        netCost,
+        grossProfit,
+        totalExpenses,
+        netProfit,
+        expenseCategoryRows
+    };
 
     const reportCustomerReturnBody = document.getElementById('report-customer-return-body');
     const reportSupplierReturnBody = document.getElementById('report-supplier-return-body');
@@ -1864,6 +1919,60 @@ async function generateReport() {
         });
         purchaseTbody.innerHTML = rows.join('');
     }
+}
+
+async function exportIncomeStatementCSV() {
+    const fromDate = document.getElementById('report-from-date')?.value;
+    const toDate = document.getElementById('report-to-date')?.value;
+
+    if (!fromDate || !toDate) {
+        alert('Please select report date range first');
+        return;
+    }
+
+    if (!lastIncomeStatement || lastIncomeStatement.fromDate !== fromDate || lastIncomeStatement.toDate !== toDate) {
+        await generateReport();
+    }
+
+    if (!lastIncomeStatement) {
+        alert('Unable to prepare income statement data');
+        return;
+    }
+
+    let csv = 'Section,Item,Amount\n';
+    csv += `Period,From Date,${lastIncomeStatement.fromDate}\n`;
+    csv += `Period,To Date,${lastIncomeStatement.toDate}\n`;
+    csv += '\n';
+
+    csv += `Revenue,Gross Sales,${lastIncomeStatement.grossSales.toFixed(2)}\n`;
+    csv += `Revenue,Less Customer Returns,-${lastIncomeStatement.totalCustomerReturnAmount.toFixed(2)}\n`;
+    csv += `Revenue,Net Sales,${lastIncomeStatement.netSales.toFixed(2)}\n`;
+    csv += '\n';
+
+    csv += `COGS,COGS Gross,${lastIncomeStatement.grossCost.toFixed(2)}\n`;
+    csv += `COGS,Less Supplier Return Credit,-${lastIncomeStatement.totalSupplierReturnAmount.toFixed(2)}\n`;
+    csv += `COGS,Less Customer Return Cost (Stock Back Value),-${lastIncomeStatement.customerReturnCost.toFixed(2)}\n`;
+    csv += `COGS,Net COGS,${lastIncomeStatement.netCost.toFixed(2)}\n`;
+    csv += '\n';
+
+    csv += `Profit,Gross Profit,${lastIncomeStatement.grossProfit.toFixed(2)}\n`;
+    csv += `Expenses,Total Other Expenses,${lastIncomeStatement.totalExpenses.toFixed(2)}\n`;
+    csv += `Profit,Net Profit,${lastIncomeStatement.netProfit.toFixed(2)}\n`;
+    csv += '\n';
+
+    csv += 'Expense Category Breakdown,,\n';
+    csv += 'Category,Amount,Share\n';
+    if (lastIncomeStatement.expenseCategoryRows.length === 0) {
+        csv += 'No categories,0.00,0%\n';
+    } else {
+        lastIncomeStatement.expenseCategoryRows.forEach((row) => {
+            const share = lastIncomeStatement.totalExpenses > 0 ? (row.amount / lastIncomeStatement.totalExpenses) * 100 : 0;
+            const escapedCategory = row.category.replaceAll('"', '""');
+            csv += `"${escapedCategory}",${row.amount.toFixed(2)},${share.toFixed(1)}%\n`;
+        });
+    }
+
+    downloadCSV(csv, `Income_Statement_${fromDate}_to_${toDate}.csv`);
 }
 
 async function exportSalesCSV() {
